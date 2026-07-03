@@ -1,6 +1,8 @@
 node_modules/
 dist/
 .DS_Store
+.codebase-memory/
+*.tsbuildinfo
 
 nodeboard-backend/.venv/
 nodeboard-backend/__pycache__/
