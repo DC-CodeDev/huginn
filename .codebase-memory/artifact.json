@@ -1,0 +1,11 @@
+{
+    "schema_version": 1,
+    "commit": "",
+    "indexed_at": "2026-07-03T00:53:54Z",
+    "project": "home-diego-Projects-huginn",
+    "nodes": 220,
+    "edges": 406,
+    "original_size": 1572864,
+    "compressed_size": 183445,
+    "compression_level": 9
+}

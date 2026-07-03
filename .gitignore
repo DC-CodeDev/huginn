@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.DS_Store
+
+nodeboard-backend/.venv/
+nodeboard-backend/__pycache__/
+nodeboard-backend/.pytest_cache/
+nodeboard-backend/*.db
+nodeboard-backend/*.sqlite
+
+*.pyc
+__pycache__/
