@@ -1,15 +1,71 @@
 """Esquemas Pydantic.
 
-El formato expuesto por la API es exactamente el que maneja nodeboard.jsx,
+El formato expuesto por la API es exactamente el que maneja el canvas,
 así el frontend puede hacer fetch y setear estado sin transformaciones:
 
-  node -> {id, type, x, y, w, title, ports, blocks, stages}
-  edge -> {id, from: {nodeId, portId}, to: {nodeId, portId}, curved}
+  node -> {id, type, x, y, w, title, ports, blocks, stages, tags}
+  edge -> {id, from: {nodeId, portId}, to: {nodeId, portId}, curved, label}
+
+Las estructuras internas del nodo (ports, blocks, stages) se validan con tipos
+reales que espejan el modelo del frontend (src/types.ts): puertos con colores de
+una paleta cerrada y bloques como union discriminada por `type`.
 """
 from datetime import datetime
-from typing import Any, Literal, Optional
+from typing import Annotated, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field
+
+
+# ------------------------------------------------------- Estructuras del nodo
+# Espejan src/types.ts (Port, Block, TimelineStage) — fuente de verdad del dominio.
+
+# Los 6 colores reales de PORT_COLORS (paleta cerrada, no str libre).
+PortColor = Literal["#C4847A", "#4ADE80", "#F87171", "#60A5FA", "#C084FC", "#E8EBF0"]
+
+
+class Port(BaseModel):
+    id: str
+    side: Literal["left", "right"]
+    color: PortColor
+    label: str
+
+
+class TextBlock(BaseModel):
+    type: Literal["text"]
+    id: str
+    value: str
+
+
+class NumberBlock(BaseModel):
+    type: Literal["number"]
+    id: str
+    value: str
+    label: str
+
+
+class TableBlock(BaseModel):
+    type: Literal["table"]
+    id: str
+    data: list[list[str]]
+
+
+class ImageBlock(BaseModel):
+    type: Literal["image"]
+    id: str
+    src: Optional[str]
+
+
+# Union discriminada por `type`: Pydantic elige la variante según ese campo.
+Block = Annotated[
+    Union[TextBlock, NumberBlock, TableBlock, ImageBlock],
+    Field(discriminator="type"),
+]
+
+
+class TimelineStage(BaseModel):
+    id: str
+    title: str
+    tags: list[str]
 
 
 # ---------------------------------------------------------------- Nodos
@@ -20,9 +76,10 @@ class NodeSchema(BaseModel):
     y: float = 0
     w: float = 280
     title: str = ""
-    ports: list[dict[str, Any]] = Field(default_factory=list)
-    blocks: list[dict[str, Any]] = Field(default_factory=list)
-    stages: list[dict[str, Any]] = Field(default_factory=list)
+    ports: list[Port] = Field(default_factory=list)
+    blocks: list[Block] = Field(default_factory=list)
+    stages: list[TimelineStage] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -34,9 +91,10 @@ class NodeUpdate(BaseModel):
     y: Optional[float] = None
     w: Optional[float] = None
     title: Optional[str] = None
-    ports: Optional[list[dict[str, Any]]] = None
-    blocks: Optional[list[dict[str, Any]]] = None
-    stages: Optional[list[dict[str, Any]]] = None
+    ports: Optional[list[Port]] = None
+    blocks: Optional[list[Block]] = None
+    stages: Optional[list[TimelineStage]] = None
+    tags: Optional[list[str]] = None
 
 
 # ---------------------------------------------------------------- Aristas
@@ -50,12 +108,14 @@ class EdgeSchema(BaseModel):
     from_: PortRef = Field(alias="from")
     to: PortRef
     curved: bool = True
+    label: str = ""
 
     model_config = ConfigDict(populate_by_name=True)
 
 
 class EdgeUpdate(BaseModel):
     curved: Optional[bool] = None
+    label: Optional[str] = None
 
 
 # ---------------------------------------------------------------- Boards

@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import type { Node, Edge } from "./types";
 
 export type SaveStatus = "cargando" | "guardando" | "guardado" | "error";
 
-type Entity = { id: string; [key: string]: unknown };
-type Board = { id: string; name: string; nodes: Entity[]; edges: Entity[] };
+type Board = { id: string; name: string; nodes: Node[]; edges: Edge[] };
 type BoardSummary = Pick<Board, "id" | "name">;
 
 const BASE = import.meta.env.VITE_API_URL ?? "";
@@ -27,17 +27,17 @@ export const api = {
     request<Board>(`/api/boards/${id}/state`, { method: "PUT", body: JSON.stringify(state) }),
 };
 
-type PersistenceOptions<T extends Entity> = {
-  nodes: T[];
-  edges: T[];
-  setNodes: Dispatch<SetStateAction<T[]>>;
-  setEdges: Dispatch<SetStateAction<T[]>>;
+type PersistenceOptions = {
+  nodes: Node[];
+  edges: Edge[];
+  setNodes: Dispatch<SetStateAction<Node[]>>;
+  setEdges: Dispatch<SetStateAction<Edge[]>>;
   debounceMs?: number;
 };
 
-export function useBoardPersistence<T extends Entity>({
+export function useBoardPersistence({
   nodes, edges, setNodes, setEdges, debounceMs = 800,
-}: PersistenceOptions<T>) {
+}: PersistenceOptions) {
   const [boardId, setBoardId] = useState<string | null>(null);
   const [status, setStatus] = useState<SaveStatus>("cargando");
   const loadedRef = useRef(false);
@@ -49,8 +49,8 @@ export function useBoardPersistence<T extends Entity>({
         const boards = await api.listBoards();
         const board = boards.length ? await api.getBoard(boards[0].id) : await api.createBoard();
         if (controller.signal.aborted) return;
-        setNodes(board.nodes as T[]);
-        setEdges(board.edges as T[]);
+        setNodes(board.nodes);
+        setEdges(board.edges);
         setBoardId(board.id);
         loadedRef.current = true;
         setStatus("guardado");

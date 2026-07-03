@@ -9,6 +9,14 @@ nodeboard-backend/__pycache__/
 nodeboard-backend/.pytest_cache/
 nodeboard-backend/*.db
 nodeboard-backend/*.sqlite
+nodeboard-backend/*.db.bak-*
+
+# SQLite creada al correr desde la raíz del repo (la canónica vive en nodeboard-backend/)
+/nodeboard.db
 
 *.pyc
 __pycache__/
+
+test-results/
+playwright-report/
+e2e/.db/

@@ -46,7 +46,7 @@ Documentación interactiva en `http://localhost:8000/docs`.
 | PATCH | `/api/edges/{id}` | Cambiar `curved` |
 | DELETE | `/api/edges/{id}` | Eliminar arista |
 
-El formato JSON es idéntico al estado interno de `nodeboard.jsx`:
+El formato JSON es idéntico al estado interno de `src/NodeBoard.tsx`:
 
 ```json
 {
@@ -61,22 +61,26 @@ El formato JSON es idéntico al estado interno de `nodeboard.jsx`:
 
 ## Integración con el frontend
 
-1. Copiá `frontend/api.js` junto a `nodeboard.jsx`.
-2. En el componente, reemplazá los estados iniciales y agregá el hook:
+El cliente vive en `src/api.ts` y el componente principal es
+`src/NodeBoard.tsx` (el archivo `frontend/api.js` de este backend es
+código histórico del prototipo y ya no se usa).
 
-```jsx
+`src/NodeBoard.tsx` importa el hook `useBoardPersistence` desde `src/api.ts`
+y lo conecta al estado de nodos y aristas:
+
+```tsx
 import { useBoardPersistence } from "./api";
 
 export default function NodeBoard() {
-  const [nodes, setNodes] = useState([]);   // antes: initialNodes
-  const [edges, setEdges] = useState([]);   // antes: initialEdges
+  const [nodes, setNodes] = useState(initialNodes);
+  const [edges, setEdges] = useState(initialEdges);
   const { status } = useBoardPersistence({ nodes, edges, setNodes, setEdges });
-  // ... resto del componente sin cambios
+  // ... resto del componente
 }
 ```
 
-3. Opcional: mostrá `status` en la barra de herramientas
-   (`cargando`, `guardando`, `guardado`, `error`).
+El valor `status` se muestra en la barra de herramientas
+(`cargando`, `guardando`, `guardado`, `error`).
 
 El hook carga el primer tablero existente (o crea uno) y guarda
 automáticamente con debounce de 800 ms ante cualquier cambio, usando

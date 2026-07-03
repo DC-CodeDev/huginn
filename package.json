@@ -6,24 +6,27 @@
   "scripts": {
     "dev": "concurrently -k -n api,web -c yellow,cyan \"npm:dev:api\" \"npm:dev:web\"",
     "dev:web": "vite",
-    "dev:api": "NODEBOARD_DB=sqlite:///./nodeboard-backend/nodeboard.db nodeboard-backend/.venv/bin/uvicorn app.main:app --reload --port 8001 --app-dir nodeboard-backend",
+    "dev:api": "NODEBOARD_DB=${NODEBOARD_DB:-sqlite:///./nodeboard-backend/nodeboard.db} nodeboard-backend/.venv/bin/uvicorn app.main:app --reload --port 8001 --app-dir nodeboard-backend",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
+    "test": "vitest",
     "test:api": "nodeboard-backend/.venv/bin/python -m pytest nodeboard-backend/tests"
   },
   "dependencies": {
-    "@vitejs/plugin-react": "latest",
     "@tailwindcss/vite": "latest",
+    "@vitejs/plugin-react": "latest",
     "lucide-react": "latest",
     "react": "latest",
     "react-dom": "latest"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@types/react": "latest",
     "@types/react-dom": "latest",
     "concurrently": "latest",
-    "typescript": "latest",
     "tailwindcss": "latest",
-    "vite": "latest"
+    "typescript": "latest",
+    "vite": "latest",
+    "vitest": "^4.1.9"
   }
 }

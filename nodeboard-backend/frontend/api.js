@@ -1,4 +1,14 @@
 /**
+ * ⚠️ CÓDIGO HISTÓRICO — NO USAR NI ACTUALIZAR.
+ *
+ * Este archivo es el cliente original del prototipo de Nodeboard. Fue
+ * reemplazado por `src/api.ts`, que es el cliente real y mantenido del
+ * frontend actual. No se importa ni se usa en ningún punto del proyecto.
+ * Se conserva únicamente como referencia del prototipo; cualquier cambio
+ * debe hacerse en `src/api.ts`, no acá.
+ */
+
+/**
  * Cliente de la Nodeboard API + hook de autosave.
  *
  * Integración con nodeboard.jsx:

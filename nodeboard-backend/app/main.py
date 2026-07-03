@@ -79,6 +79,7 @@ def _edge_to_schema(e: models.Edge) -> schemas.EdgeSchema:
         **{"from": {"nodeId": e.from_node, "portId": e.from_port}},
         to={"nodeId": e.to_node, "portId": e.to_port},
         curved=e.curved,
+        label=e.label,
     )
 
 
@@ -157,11 +158,15 @@ def save_board_state(board_id: str, payload: schemas.BoardStateSave, db: Session
     db.flush()
 
     for n in payload.nodes:
+        # ports/blocks/stages son modelos Pydantic; las columnas JSON necesitan
+        # estructuras planas. model_dump() los aplana recursivamente a dict/list.
+        dumped = n.model_dump()
         db.add(models.Node(
             id=n.id or _uid(),
             board_id=board.id,
             type=n.type, x=n.x, y=n.y, w=n.w, title=n.title,
-            ports=n.ports, blocks=n.blocks, stages=n.stages,
+            ports=dumped["ports"], blocks=dumped["blocks"],
+            stages=dumped["stages"], tags=dumped["tags"],
         ))
     for e in payload.edges:
         db.add(models.Edge(
@@ -169,7 +174,7 @@ def save_board_state(board_id: str, payload: schemas.BoardStateSave, db: Session
             board_id=board.id,
             from_node=e.from_.nodeId, from_port=e.from_.portId,
             to_node=e.to.nodeId, to_port=e.to.portId,
-            curved=e.curved,
+            curved=e.curved, label=e.label,
         ))
 
     board.updated_at = models._now()
@@ -182,11 +187,15 @@ def save_board_state(board_id: str, payload: schemas.BoardStateSave, db: Session
 @app.post("/api/boards/{board_id}/nodes", response_model=schemas.NodeSchema, status_code=201)
 def create_node(board_id: str, payload: schemas.NodeSchema, db: Session = Depends(get_db)):
     board = _get_board(db, board_id)
+    # ports/blocks/stages son modelos Pydantic; las columnas JSON necesitan
+    # estructuras planas. model_dump() los aplana recursivamente a dict/list.
+    dumped = payload.model_dump()
     node = models.Node(
         id=payload.id or _uid(),
         board_id=board.id,
         type=payload.type, x=payload.x, y=payload.y, w=payload.w, title=payload.title,
-        ports=payload.ports, blocks=payload.blocks, stages=payload.stages,
+        ports=dumped["ports"], blocks=dumped["blocks"],
+        stages=dumped["stages"], tags=dumped["tags"],
     )
     db.add(node)
     board.updated_at = models._now()
@@ -200,7 +209,13 @@ def update_node(node_id: str, payload: schemas.NodeUpdate, db: Session = Depends
     node = db.get(models.Node, node_id)
     if not node:
         raise HTTPException(404, "Nodo no encontrado")
-    for field, value in payload.model_dump(exclude_unset=True).items():
+    data = payload.model_dump(exclude_unset=True)
+    # `tags` ausente -> no se toca (exclude_unset lo omite). `tags: null` explícito
+    # es distinto: significa "limpiar", pero el dominio modela tags como lista no
+    # nullable, así que se coacciona a [] en vez de guardar None (que rompería la lectura).
+    if "tags" in data and data["tags"] is None:
+        data["tags"] = []
+    for field, value in data.items():
         setattr(node, field, value)
     node.board.updated_at = models._now()
     db.commit()
@@ -241,7 +256,7 @@ def create_edge(board_id: str, payload: schemas.EdgeSchema, db: Session = Depend
         board_id=board.id,
         from_node=payload.from_.nodeId, from_port=payload.from_.portId,
         to_node=payload.to.nodeId, to_port=payload.to.portId,
-        curved=payload.curved,
+        curved=payload.curved, label=payload.label,
     )
     db.add(edge)
     board.updated_at = models._now()
@@ -257,6 +272,11 @@ def update_edge(edge_id: str, payload: schemas.EdgeUpdate, db: Session = Depends
         raise HTTPException(404, "Arista no encontrada")
     if payload.curved is not None:
         edge.curved = payload.curved
+    fields = payload.model_dump(exclude_unset=True)
+    if "label" in fields:
+        # ausente -> no se toca; presente -> se aplica; null explícito -> vaciar
+        # (EdgeSchema.label es str no-nullable, guardar None rompería la lectura).
+        edge.label = fields["label"] if fields["label"] is not None else ""
     edge.board.updated_at = models._now()
     db.commit()
     db.refresh(edge)

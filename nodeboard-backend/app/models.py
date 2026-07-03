@@ -56,6 +56,7 @@ class Node(Base):
     ports: Mapped[list] = mapped_column(JSON, default=list)    # [{id, side, color, label}]
     blocks: Mapped[list] = mapped_column(JSON, default=list)   # [{id, type, ...}]
     stages: Mapped[list] = mapped_column(JSON, default=list)   # [{id, title, tags}]
+    tags: Mapped[list] = mapped_column(JSON, default=list)     # ["texto libre", ...]
 
     board: Mapped["Board"] = relationship(back_populates="nodes")
 
@@ -72,5 +73,6 @@ class Edge(Base):
     to_node: Mapped[str] = mapped_column(String(64))
     to_port: Mapped[str] = mapped_column(String(64))
     curved: Mapped[bool] = mapped_column(Boolean, default=True)
+    label: Mapped[str] = mapped_column(String(300), default="")  # texto libre: "depende de", etc.
 
     board: Mapped["Board"] = relationship(back_populates="edges")
