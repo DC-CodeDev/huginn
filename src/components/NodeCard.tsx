@@ -1,5 +1,5 @@
 import type { MouseEvent as ReactMouseEvent } from "react";
-import { Plus, Trash2, Type, Hash, Table2, Image as ImageIcon, Clock, CircleDot } from "lucide-react";
+import { Plus, Trash2, Type, Hash, Table2, Image as ImageIcon, Clock, CircleDot, Tag } from "lucide-react";
 import { PORT_COLORS } from "../types";
 import type { Node, Port } from "../types";
 import type { Pending } from "../lib/canvas-types";
@@ -15,7 +15,8 @@ interface NodeCardProps {
   T: Theme;
   theme: string;
   selected: boolean;
-  onSelect: () => void;
+  opacity: number;
+  onSelect: (e: ReactMouseEvent) => void;
   onStartDrag: (e: ReactMouseEvent) => void;
   onDelete: () => void;
   update: (fn: (n: Node) => Node) => void;
@@ -25,9 +26,10 @@ interface NodeCardProps {
   pending: Pending;
   menuOpen: boolean;
   onOpenMenu: () => void;
+  onOpenTags: () => void;
 }
 
-export function NodeCard({ node, T, theme, selected, onSelect, onStartDrag, onDelete, update, onPortClick, onPortCycle, onPortContext, pending, menuOpen, onOpenMenu }: NodeCardProps) {
+export function NodeCard({ node, T, theme, selected, opacity, onSelect, onStartDrag, onDelete, update, onPortClick, onPortCycle, onPortContext, pending, menuOpen, onOpenMenu, onOpenTags }: NodeCardProps) {
   const leftPorts = node.ports.filter((p) => p.side === "left");
   const rightPorts = node.ports.filter((p) => p.side === "right");
   const maxPorts = Math.max(leftPorts.length, rightPorts.length);
@@ -41,9 +43,13 @@ export function NodeCard({ node, T, theme, selected, onSelect, onStartDrag, onDe
   return (
     <div
       data-testid={`node-${node.id}`}
+      data-selected={selected}
+      data-node-x={node.x}
+      data-node-y={node.y}
       className="absolute rounded-2xl"
       style={{
         left: node.x, top: node.y, width: node.w,
+        opacity,
         background: T.card,
         border: `1px solid ${selected ? "#C4847A" : T.cardBorder}`,
         boxShadow: selected
@@ -55,7 +61,7 @@ export function NodeCard({ node, T, theme, selected, onSelect, onStartDrag, onDe
       }}
       onMouseDown={(e) => {
         e.stopPropagation();
-        if (stopIfField(e)) { onSelect(); return; }
+        if (stopIfField(e)) { onSelect(e); return; }
         onStartDrag(e);
       }}
     >
@@ -68,7 +74,7 @@ export function NodeCard({ node, T, theme, selected, onSelect, onStartDrag, onDe
           className="bg-transparent outline-none text-sm font-medium flex-1 min-w-0"
           style={{ color: T.text }}
         />
-        <button className="p-1 rounded-lg hover:opacity-70" style={{ color: T.sub }} onClick={(e) => { e.stopPropagation(); onOpenMenu(); }}>
+        <button data-testid={`menu-${node.id}`} className="p-1 rounded-lg hover:opacity-70" style={{ color: T.sub }} onClick={(e) => { e.stopPropagation(); onOpenMenu(); }}>
           <Plus size={15} />
         </button>
         <button className="p-1 rounded-lg hover:opacity-70" style={{ color: T.sub }} onClick={(e) => { e.stopPropagation(); onDelete(); }}>
@@ -83,6 +89,8 @@ export function NodeCard({ node, T, theme, selected, onSelect, onStartDrag, onDe
           style={{ background: T.field, border: `1px solid ${T.fieldBorder}`, boxShadow: "0 14px 30px -12px rgba(0,0,0,.6)" }}
           onMouseDown={(e) => e.stopPropagation()}
         >
+          <MenuItem T={T} icon={<Tag size={13} />} label="Tags" onClick={onOpenTags} />
+          <div style={{ height: 1, background: T.fieldBorder }} />
           {node.type === "card" && (
             <>
               <MenuItem T={T} icon={<Type size={13} />} label="Bloque de texto"

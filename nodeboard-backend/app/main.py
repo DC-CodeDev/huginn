@@ -4,6 +4,7 @@ Endpoints:
   GET    /api/boards                   -> lista de tableros (resumen)
   POST   /api/boards                   -> crear tablero
   GET    /api/boards/{board_id}        -> estado completo (nodes + edges)
+  GET    /api/boards/{board_id}/tags   -> tags únicos usados por los nodos del tablero
   PATCH  /api/boards/{board_id}        -> renombrar tablero
   PUT    /api/boards/{board_id}/state  -> guardar TODO el estado (autosave)
   DELETE /api/boards/{board_id}        -> eliminar tablero
@@ -69,6 +70,20 @@ def _get_board(db: Session, board_id: str) -> models.Board:
     return board
 
 
+def _get_studio(db: Session, studio_id: str) -> models.Studio:
+    studio = db.get(models.Studio, studio_id)
+    if not studio:
+        raise HTTPException(404, "Studio no encontrado")
+    return studio
+
+
+def _get_folder(db: Session, folder_id: str) -> models.Folder:
+    folder = db.get(models.Folder, folder_id)
+    if not folder:
+        raise HTTPException(404, "Carpeta no encontrada")
+    return folder
+
+
 def _node_to_schema(n: models.Node) -> schemas.NodeSchema:
     return schemas.NodeSchema.model_validate(n)
 
@@ -93,6 +108,56 @@ def _board_state(board: models.Board) -> schemas.BoardState:
     )
 
 
+# ------------------------------------------------------------------ studios
+@app.post("/api/studios", response_model=schemas.StudioOut, status_code=201)
+def create_studio(payload: schemas.StudioCreate, db: Session = Depends(get_db)):
+    studio = models.Studio(id=_uid(), name=payload.name, color=payload.color)
+    db.add(studio)
+    db.commit()
+    db.refresh(studio)
+    return studio
+
+
+@app.get("/api/studios", response_model=list[schemas.StudioOut])
+def list_studios(db: Session = Depends(get_db)):
+    return list(db.scalars(select(models.Studio).order_by(models.Studio.name)).all())
+
+
+@app.delete("/api/studios/{studio_id}", status_code=204)
+def delete_studio(studio_id: str, db: Session = Depends(get_db)):
+    db.delete(_get_studio(db, studio_id))
+    db.commit()
+
+
+# ------------------------------------------------------------------ folders
+@app.post("/api/folders", response_model=schemas.FolderOut, status_code=201)
+def create_folder(payload: schemas.FolderCreate, db: Session = Depends(get_db)):
+    _get_studio(db, payload.studio_id)
+    folder = models.Folder(id=_uid(), name=payload.name, studio_id=payload.studio_id)
+    db.add(folder)
+    db.commit()
+    db.refresh(folder)
+    return folder
+
+
+@app.get("/api/studios/{studio_id}/folders", response_model=list[schemas.FolderOut])
+def list_folders(studio_id: str, db: Session = Depends(get_db)):
+    _get_studio(db, studio_id)
+    return list(
+        db.scalars(
+            select(models.Folder)
+            .where(models.Folder.studio_id == studio_id)
+            .order_by(models.Folder.name)
+        ).all()
+    )
+
+
+@app.delete("/api/folders/{folder_id}", status_code=204)
+def delete_folder(folder_id: str, db: Session = Depends(get_db)):
+    db.delete(_get_folder(db, folder_id))
+    db.commit()
+
+
 # ------------------------------------------------------------------ boards
 @app.get("/api/boards", response_model=list[schemas.BoardSummary])
 def list_boards(db: Session = Depends(get_db)):
@@ -112,16 +177,92 @@ def list_boards(db: Session = Depends(get_db)):
 
 @app.post("/api/boards", response_model=schemas.BoardState, status_code=201)
 def create_board(payload: schemas.BoardCreate, db: Session = Depends(get_db)):
-    board = models.Board(id=_uid(), name=payload.name)
+    _get_studio(db, payload.studio_id)
+    if payload.folder_id:
+        folder = _get_folder(db, payload.folder_id)
+        if folder.studio_id != payload.studio_id:
+            raise HTTPException(
+                422,
+                "La carpeta no pertenece al Studio especificado",
+            )
+    board = models.Board(
+        id=_uid(),
+        name=payload.name,
+        studio_id=payload.studio_id,
+        folder_id=payload.folder_id,
+    )
     db.add(board)
     db.commit()
     db.refresh(board)
     return _board_state(board)
 
 
+@app.get("/api/studios/{studio_id}/boards", response_model=schemas.StudioBoardsOut)
+def list_studio_boards(studio_id: str, db: Session = Depends(get_db)):
+    _get_studio(db, studio_id)
+    all_boards = db.scalars(
+        select(models.Board)
+        .where(models.Board.studio_id == studio_id)
+        .order_by(models.Board.updated_at.desc())
+    ).all()
+
+    root_boards = []
+    folder_boards = []
+    for b in all_boards:
+        s = schemas.BoardSummary.model_validate(b)
+        s.node_count = db.scalar(
+            select(func.count()).select_from(models.Node).where(models.Node.board_id == b.id)
+        )
+        s.edge_count = db.scalar(
+            select(func.count()).select_from(models.Edge).where(models.Edge.board_id == b.id)
+        )
+        if b.folder_id is None:
+            root_boards.append(s)
+        else:
+            folder_boards.append(s)
+    return schemas.StudioBoardsOut(root_boards=root_boards, folder_boards=folder_boards)
+
+
+@app.get("/api/folders/{folder_id}/boards", response_model=list[schemas.BoardSummary])
+def list_folder_boards(folder_id: str, db: Session = Depends(get_db)):
+    _get_folder(db, folder_id)
+    boards = db.scalars(
+        select(models.Board)
+        .where(models.Board.folder_id == folder_id)
+        .order_by(models.Board.updated_at.desc())
+    ).all()
+    out = []
+    for b in boards:
+        s = schemas.BoardSummary.model_validate(b)
+        s.node_count = db.scalar(
+            select(func.count()).select_from(models.Node).where(models.Node.board_id == b.id)
+        )
+        s.edge_count = db.scalar(
+            select(func.count()).select_from(models.Edge).where(models.Edge.board_id == b.id)
+        )
+        out.append(s)
+    return out
+
+
 @app.get("/api/boards/{board_id}", response_model=schemas.BoardState)
 def get_board(board_id: str, db: Session = Depends(get_db)):
     return _board_state(_get_board(db, board_id))
+
+
+@app.get("/api/boards/{board_id}/tags", response_model=list[str])
+def board_tags(board_id: str, db: Session = Depends(get_db)):
+    """Tags únicos usados por los nodos del tablero, para autocompletar en el editor.
+
+    Agrega el campo `tags` de cada nodo (no las tags por-etapa del timeline, que son
+    otro concepto). Deduplica exacto y ordena case-insensitive para una lista estable.
+    """
+    board = _get_board(db, board_id)
+    unique: dict[str, None] = {}
+    for node in board.nodes:
+        for tag in node.tags or []:
+            if isinstance(tag, str) and tag and tag not in unique:
+                unique[tag] = None
+    return sorted(unique, key=str.lower)
 
 
 @app.patch("/api/boards/{board_id}", response_model=schemas.BoardState)

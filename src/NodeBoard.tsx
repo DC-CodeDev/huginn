@@ -1,17 +1,21 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import {
   Plus, Trash2, Moon, Sun, Spline, Minus, ZoomIn, ZoomOut, Maximize2, Clock,
+  ArrowLeft, Filter,
 } from "lucide-react";
 import { useBoardPersistence } from "./api";
 import { PORT_COLORS } from "./types";
 import type { Node, Edge, Port } from "./types";
-import type { Pending, DragState, Selection, ColorMenu } from "./lib/canvas-types";
+import type { Pending, DragState, ColorMenu } from "./lib/canvas-types";
 import { portPos, edgePath } from "./lib/geometry";
 import { THEMES } from "./lib/theme";
 import { uid } from "./lib/id";
 import { NodeCard } from "./components/NodeCard";
 import { ToolBtn } from "./components/ToolBtn";
 import { Sep } from "./components/Sep";
+import { TagsModal } from "./components/TagsModal";
+import { FilterPanel } from "./components/FilterPanel";
+import { computeNodeOpacity, type FilterMode } from "./lib/filter";
 
 /* ------------------------------------------------------------------ */
 /*  Constantes de geometría y tema                                     */
@@ -21,98 +25,55 @@ const CARD_W = 280;
 const TIMELINE_W = 360;
 
 /* ------------------------------------------------------------------ */
-/*  Datos iniciales (demo estilo referencia)                           */
+/*  Props                                                              */
 /* ------------------------------------------------------------------ */
 
-const initialNodes: Node[] = [
-  {
-    id: "n1", type: "card", x: 120, y: 260, w: CARD_W, title: "Model",
-    tags: [],
-    ports: [
-      { id: "p1", side: "right", color: "#C4847A", label: "model" },
-      { id: "p2", side: "right", color: "#4ADE80", label: "positive" },
-      { id: "p3", side: "right", color: "#F87171", label: "negative" },
-    ],
-    blocks: [{ id: uid(), type: "text", value: "DreamShaper 6 (SD1.5)" }],
-  },
-  {
-    id: "n2", type: "card", x: 560, y: 120, w: CARD_W, title: "Positive",
-    tags: [],
-    ports: [
-      { id: "p4", side: "left", color: "#4ADE80", label: "in" },
-      { id: "p5", side: "right", color: "#4ADE80", label: "out" },
-    ],
-    blocks: [{ id: uid(), type: "text", value: "A black bear with a pink snout, minimalist style, soft gradients, clear blue sky" }],
-  },
-  {
-    id: "n3", type: "card", x: 560, y: 420, w: CARD_W, title: "Negative",
-    tags: [],
-    ports: [
-      { id: "p6", side: "left", color: "#F87171", label: "in" },
-      { id: "p7", side: "right", color: "#F87171", label: "out" },
-    ],
-    blocks: [{ id: uid(), type: "text", value: "No text, unnecessary details, background objects, other animals or people." }],
-  },
-  {
-    id: "n4", type: "card", x: 990, y: 220, w: CARD_W, title: "Image Generator",
-    tags: [],
-    ports: [
-      { id: "p8", side: "left", color: "#C4847A", label: "model" },
-      { id: "p9", side: "left", color: "#4ADE80", label: "positive" },
-      { id: "p10", side: "left", color: "#F87171", label: "negative" },
-      { id: "p11", side: "right", color: "#60A5FA", label: "image" },
-    ],
-    blocks: [
-      { id: uid(), type: "number", value: "12345", label: "Randomness" },
-      { id: uid(), type: "number", value: "30", label: "Quality steps" },
-      { id: uid(), type: "number", value: "8.0", label: "Prompt strength" },
-    ],
-  },
-  {
-    id: "n5", type: "timeline", x: 120, y: 640, w: TIMELINE_W, title: "Work Stages",
-    tags: [],
-    ports: [],
-    stages: [
-      { id: uid(), title: "Define", tags: ["Goals", "Roadmap", "Frameworks"] },
-      { id: uid(), title: "Research", tags: ["Survey", "Interview", "CJM"] },
-      { id: uid(), title: "Design", tags: ["Sketches", "Wireframes", "UI Kit"] },
-      { id: uid(), title: "Testing", tags: ["Usability", "Split testing"] },
-    ],
-  },
-];
-
-const initialEdges: Edge[] = [
-  { id: "e1", from: { nodeId: "n1", portId: "p2" }, to: { nodeId: "n2", portId: "p4" }, curved: true, label: "" },
-  { id: "e2", from: { nodeId: "n1", portId: "p3" }, to: { nodeId: "n3", portId: "p6" }, curved: true, label: "" },
-  { id: "e3", from: { nodeId: "n1", portId: "p1" }, to: { nodeId: "n4", portId: "p8" }, curved: true, label: "" },
-  { id: "e4", from: { nodeId: "n2", portId: "p5" }, to: { nodeId: "n4", portId: "p9" }, curved: true, label: "" },
-  { id: "e5", from: { nodeId: "n3", portId: "p7" }, to: { nodeId: "n4", portId: "p10" }, curved: true, label: "" },
-];
+interface NodeBoardProps {
+  boardId: string;
+  onBack: () => void;
+}
 
 /* ------------------------------------------------------------------ */
 /*  Componente principal                                               */
 /* ------------------------------------------------------------------ */
 
-export default function NodeBoard() {
+export default function NodeBoard({ boardId, onBack }: NodeBoardProps) {
   const [theme, setTheme] = useState("dark");
   const T = THEMES[theme] || THEMES.dark;
 
-  const [nodes, setNodes] = useState(initialNodes);
-  const [edges, setEdges] = useState(initialEdges);
-  const { status } = useBoardPersistence({ nodes, edges, setNodes, setEdges });
-  const [selection, setSelection] = useState<Selection>(null); // {type:'node'|'edge', id}
+  const [nodes, setNodes] = useState<Node[]>([]);
+  const [edges, setEdges] = useState<Edge[]>([]);
+  const { status } = useBoardPersistence({ boardId, nodes, edges, setNodes, setEdges });
+  const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
+  const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [pending, setPending] = useState<Pending>(null);     // conexión en curso
   const [mouseWorld, setMouseWorld] = useState({ x: 0, y: 0 });
   const [menuNode, setMenuNode] = useState<string | null>(null);
+  const [tagsNode, setTagsNode] = useState<string | null>(null); // nodo con el modal de tags abierto
   const [colorMenu, setColorMenu] = useState<ColorMenu>(null); // {nodeId, portId, x, y} en coords de pantalla
   const [defaultCurved, setDefaultCurved] = useState(true);
 
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [filterTags, setFilterTags] = useState<string[]>([]);
+  const [filterMode, setFilterMode] = useState<FilterMode>("wide");
+
+  const [clipboard, setClipboard] = useState<Node[] | null>(null);
+  const lastPasteOffset = useRef<{ dx: number; dy: number } | null>(null);
+
+  // Limpiar clipboard al cambiar de board para evitar pegar contenido entre tableros
+  useEffect(() => {
+    setClipboard(null);
+    lastPasteOffset.current = null;
+  }, [boardId]);
+
   const [view, setView] = useState({ x: 40, y: 20, z: 1 });
+
   const viewRef = useRef(view);
   viewRef.current = view;
 
   const canvasRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<DragState>(null);
+  const groupDragMovedRef = useRef(false);
 
   const toWorld = useCallback((sx: number, sy: number) => {
     const rect = canvasRef.current!.getBoundingClientRect();
@@ -150,41 +111,100 @@ export default function NodeBoard() {
       } else if (d.kind === "node") {
         const w = toWorld(e.clientX, e.clientY);
         setNodes((ns) => ns.map((n) => (n.id === d.id ? { ...n, x: w.x - d.ox, y: w.y - d.oy } : n)));
+      } else if (d.kind === "group") {
+        const w = toWorld(e.clientX, e.clientY);
+        const dx = w.x - d.wx;
+        const dy = w.y - d.wy;
+        groupDragMovedRef.current = true;
+        setNodes((ns) => ns.map((n) => {
+          const orig = d.origins[n.id];
+          return orig ? { ...n, x: orig.x + dx, y: orig.y + dy } : n;
+        }));
       }
     };
-    const up = () => { dragRef.current = null; };
+    const up = () => {
+      const d = dragRef.current;
+      if (d?.kind === "group" && !groupDragMovedRef.current) {
+        // El usuario hizo click (sin arrastrar) sobre un nodo del grupo → reemplazar selección
+        setSelectedNodeIds([d.clickedId]);
+        setSelectedEdgeId(null);
+      }
+      dragRef.current = null;
+      groupDragMovedRef.current = false;
+    };
     window.addEventListener("mousemove", move);
     window.addEventListener("mouseup", up);
     return () => { window.removeEventListener("mousemove", move); window.removeEventListener("mouseup", up); };
   }, [toWorld]);
 
-  /* ---------------- Teclado: suprimir ------------------------------ */
+  /* ---------------- Teclado: suprimir + copy/paste ----------------- */
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const tag = document.activeElement?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA") return;
-      if ((e.key === "Delete" || e.key === "Backspace") && selection) {
+      if ((e.key === "Delete" || e.key === "Backspace") && (selectedNodeIds.length > 0 || selectedEdgeId)) {
         e.preventDefault();
         deleteSelection();
       }
-      if (e.key === "Escape") { setPending(null); setSelection(null); setMenuNode(null); setColorMenu(null); }
+      if (e.key === "Escape") { setPending(null); setSelectedNodeIds([]); setSelectedEdgeId(null); setMenuNode(null); setColorMenu(null); setTagsNode(null); setFilterOpen(false); }
+
+      if (e.key === "c" && (e.ctrlKey || e.metaKey) && selectedNodeIds.length > 0) {
+        const toCopy = nodes.filter((n) => selectedNodeIds.includes(n.id));
+        if (toCopy.length > 0) {
+          e.preventDefault();
+          setClipboard(toCopy);
+          lastPasteOffset.current = null;
+        }
+      }
+
+      if (e.key === "v" && (e.ctrlKey || e.metaKey) && clipboard) {
+        e.preventDefault();
+        const PASTE_OFFSET = 20;
+        const prev = lastPasteOffset.current ?? { dx: 0, dy: 0 };
+        const dx = prev.dx + PASTE_OFFSET;
+        const dy = prev.dy + PASTE_OFFSET;
+        lastPasteOffset.current = { dx, dy };
+        const newNodes: Node[] = clipboard.map((src) => {
+          const newPorts = src.ports.map((p) => ({ ...p, id: uid() }));
+          const common = { id: uid(), x: src.x + dx, y: src.y + dy, w: src.w, title: src.title, tags: [...src.tags], ports: newPorts };
+          return src.type === "card"
+            ? { ...common, type: "card" as const, blocks: src.blocks.map((b) => ({ ...b, id: uid() })) }
+            : { ...common, type: "timeline" as const, stages: src.stages.map((s) => ({ ...s, id: uid(), tags: [...s.tags] })) };
+        });
+        setNodes((ns) => [...ns, ...newNodes]);
+        setSelectedNodeIds(newNodes.map((n) => n.id));
+        setSelectedEdgeId(null);
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   });
 
+  /* ---------------- Selección de nodos ------------------------------ */
+  const handleNodeClick = useCallback((id: string, e: { shiftKey: boolean; ctrlKey: boolean }) => {
+    setSelectedEdgeId(null);
+    if (e.shiftKey || e.ctrlKey) {
+      setSelectedNodeIds((prev) =>
+        prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+      );
+    } else {
+      setSelectedNodeIds([id]);
+    }
+  }, []);
+
   /* ---------------- Mutadores --------------------------------------- */
   const updateNode = (id: string, fn: (n: Node) => Node) => setNodes((ns) => ns.map((n) => (n.id === id ? fn(n) : n)));
 
   const deleteSelection = () => {
-    if (!selection) return;
-    if (selection.type === "node") {
-      setNodes((ns) => ns.filter((n) => n.id !== selection.id));
-      setEdges((es) => es.filter((e) => e.from.nodeId !== selection.id && e.to.nodeId !== selection.id));
-    } else {
-      setEdges((es) => es.filter((e) => e.id !== selection.id));
+    if (selectedNodeIds.length > 0) {
+      const ids = new Set(selectedNodeIds);
+      setNodes((ns) => ns.filter((n) => !ids.has(n.id)));
+      setEdges((es) => es.filter((e) => !ids.has(e.from.nodeId) && !ids.has(e.to.nodeId)));
+      setSelectedNodeIds([]);
+    } else if (selectedEdgeId) {
+      setEdges((es) => es.filter((e) => e.id !== selectedEdgeId));
+      setSelectedEdgeId(null);
     }
-    setSelection(null);
   };
 
   const addNode = (type: "card" | "timeline", at?: { x: number; y: number }) => {
@@ -234,6 +254,15 @@ export default function NodeBoard() {
 
   /* ---------------- Render de aristas ------------------------------- */
   const nodeById = Object.fromEntries(nodes.map((n) => [n.id, n]));
+
+  // Tags únicos del tablero derivados del estado local: se unen con los del servidor en el
+  // modal para que un tag recién creado esté disponible antes de que el autosave persista.
+  const localBoardTags = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const n of nodes) for (const t of n.tags) if (!seen.has(t.toLowerCase())) seen.set(t.toLowerCase(), t);
+    return [...seen.values()];
+  }, [nodes]);
+  const tagsNodeObj = tagsNode ? nodeById[tagsNode] : null;
   const renderedEdges = edges.map((e) => {
     const a = nodeById[e.from.nodeId] && portPos(nodeById[e.from.nodeId], e.from.portId);
     const b = nodeById[e.to.nodeId] && portPos(nodeById[e.to.nodeId], e.to.portId);
@@ -243,7 +272,16 @@ export default function NodeBoard() {
 
   const pendingPos = pending && nodeById[pending.nodeId] ? portPos(nodeById[pending.nodeId], pending.portId) : null;
 
-  const selectedEdge = selection?.type === "edge" ? edges.find((e) => e.id === selection.id) : null;
+  const selectedEdge = selectedEdgeId ? edges.find((e) => e.id === selectedEdgeId) : null;
+
+  // Opacidad por nodo según el filtro de tags
+  const nodeOpacities = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const n of nodes) {
+      map[n.id] = computeNodeOpacity(n.tags, filterOpen, filterTags, filterMode);
+    }
+    return map;
+  }, [nodes, filterOpen, filterTags, filterMode]);
 
   /* ================================================================== */
   return (
@@ -262,7 +300,7 @@ export default function NodeBoard() {
       onMouseDown={(e) => {
         if (e.target === canvasRef.current) {
           dragRef.current = { kind: "pan", sx: e.clientX, sy: e.clientY, vx: view.x, vy: view.y };
-          setSelection(null); setMenuNode(null); setPending(null); setColorMenu(null);
+          setSelectedNodeIds([]); setSelectedEdgeId(null); setMenuNode(null); setPending(null); setColorMenu(null);
         }
       }}
       onDoubleClick={(e) => {
@@ -275,21 +313,21 @@ export default function NodeBoard() {
         style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.z})`, transformOrigin: "0 0" }}
       >
         {/* Aristas */}
-        <svg className="absolute top-0 left-0 overflow-visible pointer-events-none" width="1" height="1">
+        <svg data-testid="canvas-edges" className="absolute top-0 left-0 overflow-visible pointer-events-none" width="1" height="1">
           {renderedEdges.map((e) => (
             <g key={e.id}>
               <path
                 d={edgePath(e.a, e.b, e.curved)}
                 stroke="transparent" strokeWidth={14} fill="none"
                 className="pointer-events-auto cursor-pointer"
-                onClick={(ev) => { ev.stopPropagation(); setSelection({ type: "edge", id: e.id }); }}
+                onClick={(ev) => { ev.stopPropagation(); setSelectedEdgeId(e.id); setSelectedNodeIds([]); }}
               />
               <path
                 d={edgePath(e.a, e.b, e.curved)}
                 stroke={e.color} fill="none"
-                strokeWidth={selection?.type === "edge" && selection.id === e.id ? 2.6 : 1.6}
-                opacity={selection?.type === "edge" && selection.id === e.id ? 1 : 0.75}
-                style={selection?.type === "edge" && selection.id === e.id
+                strokeWidth={selectedEdgeId === e.id ? 2.6 : 1.6}
+                opacity={selectedEdgeId === e.id ? 1 : 0.75}
+                style={selectedEdgeId === e.id
                   ? { filter: `drop-shadow(0 0 6px ${e.color})` } : undefined}
               />
             </g>
@@ -307,16 +345,30 @@ export default function NodeBoard() {
           <NodeCard
             key={node.id}
             node={node} T={T} theme={theme}
-            selected={selection?.type === "node" && selection.id === node.id}
+            selected={selectedNodeIds.includes(node.id)}
+            opacity={nodeOpacities[node.id]}
             menuOpen={menuNode === node.id}
             onOpenMenu={() => setMenuNode(menuNode === node.id ? null : node.id)}
-            onSelect={() => { setSelection({ type: "node", id: node.id }); setMenuNode(null); }}
+            onOpenTags={() => { setTagsNode(node.id); setMenuNode(null); }}
+            onSelect={(e) => { handleNodeClick(node.id, e); setMenuNode(null); }}
             onStartDrag={(e) => {
               const w = toWorld(e.clientX, e.clientY);
-              dragRef.current = { kind: "node", id: node.id, ox: w.x - node.x, oy: w.y - node.y };
-              setSelection({ type: "node", id: node.id });
+              const isGroupDragIntent = !e.shiftKey && !e.ctrlKey && !e.metaKey
+                && selectedNodeIds.length > 1 && selectedNodeIds.includes(node.id);
+              if (isGroupDragIntent) {
+                const origins: Record<string, { x: number; y: number }> = {};
+                for (const selId of selectedNodeIds) {
+                  const selNode = nodes.find((n) => n.id === selId);
+                  if (selNode) origins[selId] = { x: selNode.x, y: selNode.y };
+                }
+                groupDragMovedRef.current = false;
+                dragRef.current = { kind: "group", ids: [...selectedNodeIds], origins, wx: w.x, wy: w.y, clickedId: node.id };
+              } else {
+                dragRef.current = { kind: "node", id: node.id, ox: w.x - node.x, oy: w.y - node.y };
+                handleNodeClick(node.id, e);
+              }
             }}
-            onDelete={() => { setSelection({ type: "node", id: node.id }); setNodes((ns) => ns.filter((n) => n.id !== node.id)); setEdges((es) => es.filter((e2) => e2.from.nodeId !== node.id && e2.to.nodeId !== node.id)); setSelection(null); }}
+            onDelete={() => { setNodes((ns) => ns.filter((n) => n.id !== node.id)); setEdges((es) => es.filter((e2) => e2.from.nodeId !== node.id && e2.to.nodeId !== node.id)); setSelectedNodeIds((prev) => prev.filter((id) => id !== node.id)); }}
             update={(fn) => updateNode(node.id, fn)}
             onPortClick={(port) => onPortClick(node, port)}
             onPortCycle={(portId) => cyclePortColor(node.id, portId)}
@@ -329,6 +381,33 @@ export default function NodeBoard() {
           />
         ))}
       </div>
+
+      {/* ---------- Modal de tags ---------- */}
+      {tagsNodeObj && (
+        <TagsModal
+          T={T}
+          theme={theme}
+          boardId={boardId}
+          nodeTitle={tagsNodeObj.title}
+          tags={tagsNodeObj.tags}
+          localBoardTags={localBoardTags}
+          setTags={(tags) => updateNode(tagsNodeObj.id, (n) => ({ ...n, tags }))}
+          onClose={() => setTagsNode(null)}
+        />
+      )}
+
+      {/* ---------- Panel de filtro por tags ---------- */}
+      {filterOpen && (
+        <FilterPanel
+          T={T}
+          allBoardTags={localBoardTags}
+          filterTags={filterTags}
+          filterMode={filterMode}
+          onChangeFilterTags={setFilterTags}
+          onChangeFilterMode={setFilterMode}
+          onClose={() => setFilterOpen(false)}
+        />
+      )}
 
       {/* ---------- Menú contextual de colores ---------- */}
       {colorMenu && (
@@ -376,6 +455,8 @@ export default function NodeBoard() {
         className="absolute top-4 left-4 flex items-center gap-1 rounded-2xl px-2 py-1.5"
         style={{ background: T.card, border: `1px solid ${T.cardBorder}`, boxShadow: "0 14px 34px -14px rgba(0,0,0,.6)" }}
       >
+        <ToolBtn T={T} testId="back-btn" label="Volver" onClick={onBack}><ArrowLeft size={16} /></ToolBtn>
+        <Sep T={T} />
         <ToolBtn T={T} testId="add-node-card" label="Nuevo nodo" onClick={() => addNode("card")}><Plus size={16} /></ToolBtn>
         <ToolBtn T={T} testId="add-node-timeline" label="Línea temporal" onClick={() => addNode("timeline")}><Clock size={16} /></ToolBtn>
         <Sep T={T} />
@@ -387,6 +468,10 @@ export default function NodeBoard() {
         >
           {status}
         </span>
+        <Sep T={T} />
+        <ToolBtn T={T} testId="filter-toggle" label={filterOpen ? "Cerrar filtro" : "Filtrar por tags"} onClick={() => setFilterOpen((v) => !v)}>
+          <Filter size={16} />
+        </ToolBtn>
         <Sep T={T} />
         <ToolBtn T={T} label={defaultCurved ? "Conector: curvo" : "Conector: recto"} onClick={() => setDefaultCurved((c) => !c)}>
           {defaultCurved ? <Spline size={16} /> : <Minus size={16} />}
@@ -402,7 +487,7 @@ export default function NodeBoard() {
       </div>
 
       {/* ---------- Barra de acciones de selección ---------- */}
-      {selection && (
+      {(selectedNodeIds.length > 0 || selectedEdgeId) && (
         <div
           className="absolute bottom-5 left-1/2 -translate-x-1/2 flex items-center gap-1 rounded-2xl px-2 py-1.5"
           style={{ background: T.card, border: `1px solid ${T.cardBorder}`, boxShadow: "0 14px 34px -14px rgba(0,0,0,.6)" }}
