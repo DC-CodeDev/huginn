@@ -1,11 +1,26 @@
 """Configuración de la base de datos (SQLite + SQLAlchemy 2.x)."""
 import os
+from pathlib import Path
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
-# La BD vive junto al proyecto; se puede sobreescribir con la variable de entorno
-DATABASE_URL = os.getenv("NODEBOARD_DB", "sqlite:///./nodeboard.db")
+
+def get_database_url() -> str:
+    """Construye la URL de conexión.
+
+    Orden de precedencia:
+      1. DATA_PATH (variable canónica de la Suite) — ruta absoluta
+      2. NODEBOARD_DB (override legacy, desarrollo local)
+      3. Default relativo ``sqlite:///./nodeboard.db``
+    """
+    data_path = os.getenv("DATA_PATH")
+    if data_path:
+        return f"sqlite:///{Path(data_path) / 'nodeboard.db'}"
+    return os.getenv("NODEBOARD_DB", "sqlite:///./nodeboard.db")
+
+
+DATABASE_URL = get_database_url()
 
 engine = create_engine(
     DATABASE_URL,

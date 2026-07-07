@@ -1,8 +1,8 @@
 """
 Alembic env.py — configurado para Huginn Nodeboard.
 
-Lee la URL de la BD desde la variable de entorno NODEBOARD_DB (misma fuente
-que app.database), e importa los modelos SQLAlchemy reales para que
+Lee la URL de la BD desde app.database.get_database_url() (misma fuente
+que la app en runtime), e importa los modelos SQLAlchemy reales para que
 autogenerate funcione contra el metadata declarativo del proyecto.
 """
 import os
@@ -24,12 +24,10 @@ if _be_dir not in sys.path:
 # access to the values within the .ini file in use.
 config = context.config
 
-# Override sqlalchemy.url desde la variable de entorno, que es la fuente
-# de verdad del proyecto (ver app/database.py y package.json → dev:api).
-config.set_main_option(
-    "sqlalchemy.url",
-    os.getenv("NODEBOARD_DB", "sqlite:///./nodeboard.db"),
-)
+# Override sqlalchemy.url usando la misma función que usa la app en runtime,
+# para que migrations y producción compartan la misma lógica de resolución.
+from app.database import get_database_url  # noqa: E402
+config.set_main_option("sqlalchemy.url", get_database_url())
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.

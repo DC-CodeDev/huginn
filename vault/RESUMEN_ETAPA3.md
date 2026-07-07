@@ -25,8 +25,9 @@
 
 Multi-stage:
 - **Builder** (node:22-alpine): `npm ci` + `npm run build` → `dist/`
-- **Final** (python:3.12-slim): pip install → copia backend → copia `dist/` a `app/static/` → `mkdir -p /app/data` → entrypoint.sh
-- Build args: `BUILD_COMMIT`, `BUILD_TIMESTAMP`
+- **Final** (python:3.12-slim): pip install → copia backend → copia `dist/` a `app/static/` → `mkdir -p /data` → entrypoint.sh
+- Build args: `BUILD_COMMIT`, `BUILD_TIMESTAMP`, `VITE_GOOGLE_CLIENT_ID`
+- En Railway se setea `DATA_PATH=/data` y se monta un Volume en `/data` para persistir SQLite entre deploys
 
 ---
 
@@ -36,6 +37,8 @@ Multi-stage:
 |----------|---------|-----------|
 | `CORS_ORIGINS` | `http://localhost:5174,http://127.0.0.1:5174,http://localhost:3000` | Orígenes permitidos por CORS |
 | `PORT` | `8001` | Puerto para uvicorn (Railway inyecta `$PORT`) |
+| `DATA_PATH` | *(ninguno)* | Ruta absoluta donde se crea `nodeboard.db`. Railway monta un Volume en `DATA_PATH` para persistencia entre deploys |
+| `VITE_GOOGLE_CLIENT_ID` | *(requerido)* | Client ID de Google OAuth para build de frontend (build arg) |
 
 ---
 

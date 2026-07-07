@@ -35,8 +35,11 @@ COPY nodeboard-backend/ .
 # Build del frontend → static/ (donde main.py lo espera)
 COPY --from=builder /app/dist/ app/static/
 
-# Directorio para volúmenes persistentes (ej. SQLite)
-RUN mkdir -p /app/data
+# Directorio para volúmenes persistentes (ej. SQLite). En Railway se setea
+# DATA_PATH=/data y se monta un Volume en /data para que los datos sobrevivan
+# entre deploys. En desarrollo local DATA_PATH no está definida y se usa el
+# default relativo (./nodeboard.db).
+RUN mkdir -p /data
 
 # Entrypoint con migraciones + arranque
 COPY nodeboard-backend/entrypoint.sh /app/entrypoint.sh
