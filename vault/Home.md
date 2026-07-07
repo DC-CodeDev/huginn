@@ -97,6 +97,7 @@ Documentación arquitectural del canvas de nodos **Huginn**: frontend Vite + Rea
 ### Raíz — Deploy
 - `Dockerfile` — multi-stage: builder Node 22 + runtime Python 3.12-slim. Build args `BUILD_COMMIT`, `BUILD_TIMESTAMP`.
 - `nodeboard-backend/entrypoint.sh` — `alembic upgrade head` + `exec uvicorn` en `$PORT`.
+- `.github/workflows/ci.yml` — CI en GitHub Actions: build frontend → copia build a `static/` → `vitest` → `pytest --runxfail`. El flag `--runxfail` asegura que `test_catch_all_ordering_at_runtime` falle si el build de frontend no está presente.
 
 ### `e2e/` — Tests end-to-end (Playwright)
 - [[Archivos/e2e/helpers.ts.md]] — helpers: `connectPorts`, `waitForBoardLoaded`, `openTagsModal`, `dragNodeBy`, `createCardNodeAndGetId`, **`setupStudioAndBoard`**, **`setupStudioFolderAndBoard`**
