@@ -30,6 +30,8 @@ export function FolderView({ folderId, studioId, onBack, onBoardClick }: FolderV
   const [folderBoards, setFolderBoards] = useState<BoardSummary[] | null>(null);
   const [menuBoardId, setMenuBoardId] = useState<string | null>(null);
   const [deleteBoardId, setDeleteBoardId] = useState<string | null>(null);
+  const [renameBoardId, setRenameBoardId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
 
   useEffect(() => {
     api.listFolders(studioId).then((list) => {
@@ -56,6 +58,21 @@ export function FolderView({ folderId, studioId, onBack, onBoardClick }: FolderV
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [menuBoardId]);
+
+  const doRename = async (id: string) => {
+    const trimmed = renameValue.trim();
+    if (!trimmed) { setRenameBoardId(null); return; }
+    try {
+      await api.renameBoard(id, trimmed);
+      const upd = (prev: BoardSummary[] | null) =>
+        prev ? prev.map((b) => b.id === id ? { ...b, name: trimmed } : b) : prev;
+      setRecentBoards(upd);
+      setFolderBoards(upd);
+    } catch (e) {
+      console.error("Error al renombrar board", e);
+    }
+    setRenameBoardId(null);
+  };
 
   const createBoard = async () => {
     const board = await api.createBoard("Nuevo board", studioId, folderId);
@@ -140,7 +157,13 @@ export function FolderView({ folderId, studioId, onBack, onBoardClick }: FolderV
                   key={b.id}
                   board={b}
                   menuBoardId={menuBoardId}
+                  renameBoardId={renameBoardId}
+                  renameValue={renameValue}
                   onMenuToggle={(id) => setMenuBoardId(menuBoardId === id ? null : id)}
+                  onRenameStart={(id, name) => { setRenameValue(name); setRenameBoardId(id); setMenuBoardId(null); }}
+                  onRenameChange={setRenameValue}
+                  onRenameFinish={doRename}
+                  onRenameCancel={() => setRenameBoardId(null)}
                   onDelete={() => { setDeleteBoardId(b.id); setMenuBoardId(null); }}
                   onClick={() => { if (!menuBoardId) onBoardClick(b.id); }}
                 />
@@ -161,7 +184,13 @@ export function FolderView({ folderId, studioId, onBack, onBoardClick }: FolderV
                   key={b.id}
                   board={b}
                   menuBoardId={menuBoardId}
+                  renameBoardId={renameBoardId}
+                  renameValue={renameValue}
                   onMenuToggle={(id) => setMenuBoardId(menuBoardId === id ? null : id)}
+                  onRenameStart={(id, name) => { setRenameValue(name); setRenameBoardId(id); setMenuBoardId(null); }}
+                  onRenameChange={setRenameValue}
+                  onRenameFinish={doRename}
+                  onRenameCancel={() => setRenameBoardId(null)}
                   onDelete={() => { setDeleteBoardId(b.id); setMenuBoardId(null); }}
                   onClick={() => { if (!menuBoardId) onBoardClick(b.id); }}
                 />
@@ -191,12 +220,18 @@ export function FolderView({ folderId, studioId, onBack, onBoardClick }: FolderV
 interface BoardCardProps {
   board: BoardSummary;
   menuBoardId: string | null;
+  renameBoardId: string | null;
+  renameValue: string;
   onMenuToggle: (id: string) => void;
+  onRenameStart: (id: string, name: string) => void;
+  onRenameChange: (value: string) => void;
+  onRenameFinish: (id: string) => void;
+  onRenameCancel: () => void;
   onDelete: () => void;
   onClick: () => void;
 }
 
-function BoardCard({ board, menuBoardId, onMenuToggle, onDelete, onClick }: BoardCardProps) {
+function BoardCard({ board, menuBoardId, renameBoardId, renameValue, onMenuToggle, onRenameStart, onRenameChange, onRenameFinish, onRenameCancel, onDelete, onClick }: BoardCardProps) {
   return (
     <div
       data-testid={`board-card-${board.id}`}
@@ -207,7 +242,20 @@ function BoardCard({ board, menuBoardId, onMenuToggle, onDelete, onClick }: Boar
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
           <FileText size={14} style={{ color: "var(--sub)" }} className="shrink-0" />
-          <span style={{ color: "var(--text)", opacity: 0.85 }} className="text-sm font-medium truncate">{board.name}</span>
+          {renameBoardId === board.id ? (
+            <input
+              autoFocus
+              value={renameValue}
+              onChange={(e) => onRenameChange(e.target.value)}
+              onBlur={() => onRenameFinish(board.id)}
+              onKeyDown={(e) => { if (e.key === "Enter") onRenameFinish(board.id); if (e.key === "Escape") onRenameCancel(); }}
+              onClick={(e) => e.stopPropagation()}
+              className="text-sm font-medium bg-transparent outline-none border-b min-w-0"
+              style={{ color: "var(--text)", borderColor: "var(--dashed-border)" }}
+            />
+          ) : (
+            <span style={{ color: "var(--text)", opacity: 0.85 }} className="text-sm font-medium truncate">{board.name}</span>
+          )}
         </div>
         {/* Three-dot menu */}
         <div data-menu-root="true" style={{ position: "relative" }} className="shrink-0">
@@ -228,6 +276,13 @@ function BoardCard({ board, menuBoardId, onMenuToggle, onDelete, onClick }: Boar
               }}
               onClick={(e) => e.stopPropagation()}
             >
+              <button
+                className="flex items-center gap-1.5 w-full px-3 py-2 hover:opacity-80"
+                style={{ color: "var(--text)" }}
+                onClick={() => { onRenameStart(board.id, board.name); }}
+              >
+                <FileText size={13} /> Renombrar
+              </button>
               <button
                 className="flex items-center gap-1.5 w-full px-3 py-2 hover:opacity-80"
                 style={{ color: "#F87171" }}

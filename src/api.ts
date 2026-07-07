@@ -52,9 +52,12 @@ export const api = {
     method: "POST", body: JSON.stringify({ name, studio_id: studioId, folder_id: folderId ?? null }),
   }),
   deleteBoard: (id: string) => request<void>(`/api/boards/${id}`, { method: "DELETE" }),
+  renameBoard: (id: string, name: string) => request<Board>(`/api/boards/${id}`, {
+    method: "PATCH", body: JSON.stringify({ name }),
+  }),
   getBoard: (id: string) => request<Board>(`/api/boards/${id}`),
   getBoardTags: (id: string) => request<string[]>(`/api/boards/${id}/tags`),
-  saveState: (id: string, state: Pick<Board, "nodes" | "edges">) =>
+  saveState: (id: string, state: Pick<Board, "nodes" | "edges"> & { name?: string }) =>
     request<Board>(`/api/boards/${id}/state`, { method: "PUT", body: JSON.stringify(state) }),
   getStudioBoards: (studioId: string) => request<StudioBoards>(`/api/studios/${studioId}/boards`),
 };
@@ -65,11 +68,12 @@ type PersistenceOptions = {
   edges: Edge[];
   setNodes: Dispatch<SetStateAction<Node[]>>;
   setEdges: Dispatch<SetStateAction<Edge[]>>;
+  boardName?: string;
   debounceMs?: number;
 };
 
 export function useBoardPersistence({
-  boardId, nodes, edges, setNodes, setEdges, debounceMs = 800,
+  boardId, nodes, edges, setNodes, setEdges, boardName, debounceMs = 800,
 }: PersistenceOptions) {
   const [status, setStatus] = useState<SaveStatus>("cargando");
   const loadedRef = useRef(false);
@@ -99,7 +103,9 @@ export function useBoardPersistence({
     if (!boardId || !loadedRef.current) return;
     setStatus("guardando");
     const timer = window.setTimeout(() => {
-      void api.saveState(boardId, { nodes, edges })
+      const payload: Parameters<typeof api.saveState>[1] = { nodes, edges };
+      if (boardName !== undefined) payload.name = boardName;
+      void api.saveState(boardId, payload)
         .then(() => setStatus("guardado"))
         .catch((error) => {
           console.error("No se pudo guardar el tablero", error);
@@ -107,7 +113,7 @@ export function useBoardPersistence({
         });
     }, debounceMs);
     return () => window.clearTimeout(timer);
-  }, [boardId, debounceMs, edges, nodes]);
+  }, [boardId, boardName, debounceMs, edges, nodes]);
 
   return { status };
 }

@@ -3,7 +3,7 @@ import {
   Plus, Trash2, Moon, Sun, Spline, Minus, ZoomIn, ZoomOut, Maximize2, Clock,
   ArrowLeft, Filter, Settings, CircleUser,
 } from "lucide-react";
-import { useBoardPersistence } from "./api";
+import { api, useBoardPersistence } from "./api";
 import { PORT_COLORS } from "./types";
 import type { Node, Edge, Port } from "./types";
 import type { Pending, DragState, ColorMenu } from "./lib/canvas-types";
@@ -48,7 +48,8 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
 
   const [nodes, setNodes] = useState<Node[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
-  const { status } = useBoardPersistence({ boardId, nodes, edges, setNodes, setEdges });
+  const [boardName, setBoardName] = useState("");
+  const { status } = useBoardPersistence({ boardId, nodes, edges, setNodes, setEdges, boardName });
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [pending, setPending] = useState<Pending>(null);     // conexión en curso
@@ -74,6 +75,12 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
   useEffect(() => {
     setClipboard(null);
     lastPasteOffset.current = null;
+  }, [boardId]);
+
+  // Cargar nombre del board al montar
+  useEffect(() => {
+    if (!boardId) return;
+    api.getBoard(boardId).then((board) => setBoardName(board.name)).catch(() => {});
   }, [boardId]);
 
   const [view, setView] = useState({ x: 40, y: 20, z: 1 });
@@ -466,6 +473,15 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
         style={{ background: T.card, border: `1px solid ${T.cardBorder}`, boxShadow: "0 14px 34px -14px rgba(0,0,0,.6)" }}
       >
         <ToolBtn T={T} testId="back-btn" label="Volver" onClick={onBack}><ArrowLeft size={16} /></ToolBtn>
+        <input
+          data-testid="board-title"
+          value={boardName}
+          onChange={(e) => setBoardName(e.target.value)}
+          className="bg-transparent text-sm font-medium outline-none min-w-[120px] max-w-[240px]"
+          style={{ color: T.text }}
+          placeholder="Nombre del board"
+          onMouseDown={(e) => e.stopPropagation()}
+        />
         <Sep T={T} />
         <ToolBtn T={T} testId="add-node-card" label="Nuevo nodo" onClick={() => addNode("card")}><Plus size={16} /></ToolBtn>
         <ToolBtn T={T} testId="add-node-timeline" label="Línea temporal" onClick={() => addNode("timeline")}><Clock size={16} /></ToolBtn>
