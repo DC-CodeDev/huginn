@@ -189,3 +189,4 @@ con el código fuente — son instantáneas para revisión externa.
 - [[PWA_PHASE_0_REPORT.md]] — informe de Fase 0: catch-all, cookies, cache headers, seguridad, secrets
 - [[PWA_PHASE_1_CORE_REPORT.md]] — informe de Fase 1 Core: manifest, SW, offline, registro
 - [[PWA_PHASE_1_FINAL_REPORT.md]] — informe final de Fase 1: actualización controlada, conectividad, safe areas, tests, Docker
+- [[PRUEBA_DE_PERSISTENCIA.md]] — verificación de persistencia Railway: DATA_PATH, volumen montado, migración segura
