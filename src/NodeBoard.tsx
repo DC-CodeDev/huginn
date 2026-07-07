@@ -17,6 +17,7 @@ import { TagsModal } from "./components/TagsModal";
 import { FilterPanel } from "./components/FilterPanel";
 import { SettingsModal } from "./components/SettingsModal";
 import { ProfileMenu } from "./components/ProfileMenu";
+import { useAuth } from "./lib/auth-context";
 import { computeNodeOpacity, type FilterMode } from "./lib/filter";
 
 /* ------------------------------------------------------------------ */
@@ -42,6 +43,7 @@ interface NodeBoardProps {
 /* ------------------------------------------------------------------ */
 
 export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: NodeBoardProps) {
+  const { user, logout } = useAuth();
   const T = THEMES[theme] || THEMES.dark;
 
   const [nodes, setNodes] = useState<Node[]>([]);
@@ -540,9 +542,11 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
       )}
 
       {/* ---------- Menú de perfil ---------- */}
-      {profileOpen && (
+      {profileOpen && user && (
         <ProfileMenu
           T={T} theme={theme}
+          user={user}
+          onLogout={logout}
           onCloseProfile={onBack}
           onClose={() => setProfileOpen(false)}
         />
