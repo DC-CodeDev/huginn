@@ -1,9 +1,8 @@
 import { test, expect } from "@playwright/test";
-import { waitForBoardLoaded } from "./helpers";
+import { setupStudioAndBoard } from "./helpers";
 
 test("crear un nodo card aumenta la cantidad de nodos en uno", async ({ page }) => {
-  await page.goto("/");
-  await waitForBoardLoaded(page);
+  await setupStudioAndBoard(page);
 
   const nodes = page.locator('[data-testid^="node-"]');
   const before = await nodes.count();

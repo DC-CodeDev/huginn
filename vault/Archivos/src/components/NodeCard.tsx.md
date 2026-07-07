@@ -8,9 +8,11 @@ Componente más complejo del frontend: dibuja un nodo completo (card o timeline)
 
 ## Comportamiento
 - **Encabezado**: input de `title`, botón "+" (abre menú añadir), botón borrar. Handle de drag = zona sin campos de formulario (`stopIfField` detecta input/textarea/button/select/label)
-- **Menú añadir** (`menuOpen`): para card → bloques texto/número/tabla/imagen; para timeline → "añadir etapa"; ambos → puerto de entrada/salida
+- **Selección**: el componente NO conoce la lógica de multi-selección. `onMouseDown` en el cuerpo del card llama `onSelect(e)` (si el target es un campo) o `onStartDrag(e)`. Ambos pasan el `ReactMouseEvent` completo —con `shiftKey`/`ctrlKey`— hacia `NodeBoard` que decide qué hacer
+- **Menú añadir** (`menuOpen`): para card → bloques texto/número/tabla/imagen; para timeline → "añadir etapa"; ambos → puerto de entrada/salida. Botón del menú: `data-testid="menu-{id}"` (prefijo `menu-`, no `node-`, para no colisionar con el selector `[data-testid^="node-"]` de los tests)
 - **Puertos**: labels editables por lado (left/right) y dots de conexión posicionados con `PORT_Y0`/`PORT_DY`. Dot: click = conectar (`onPortClick`), doble click = ciclar color (`onPortCycle`), click derecho = menú de color (`onPortContext`)
 - **Contenido**: card renderiza `Block` por cada bloque; timeline renderiza `Timeline`
+- **Atributos del div raíz**: `data-node-x={node.x}`, `data-node-y={node.y}` (posición para tests) y `data-selected={selected}` (estado de selección para tests e2e)
 
 ## Importa
 - [[../../../Archivos/src/types.ts.md]] — `PORT_COLORS`, `Node`, `Port`

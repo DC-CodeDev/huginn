@@ -15,4 +15,5 @@ Configuración de la base de datos (SQLite + SQLAlchemy 2.x): engine, factory de
 
 ## Importado por
 - [[../../../Archivos/nodeboard-backend/app/models.py.md]] — `Base`
-- [[../../../Archivos/nodeboard-backend/app/main.py.md]] — `Base`, `engine`, `get_db`
+- [[../../../Archivos/nodeboard-backend/app/main.py.md]] — `engine`, `get_db`
+- [[../../../Archivos/nodeboard-backend/migrations/env.py.md]] — `Base`

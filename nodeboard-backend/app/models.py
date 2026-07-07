@@ -3,9 +3,14 @@
 Los nodos guardan sus partes flexibles (ports, blocks, stages) como JSON,
 porque su estructura varía según el tipo de nodo y evoluciona con el frontend.
 Las aristas se guardan normalizadas para poder consultarlas o validarlas.
+
+Jerarquía de organización:
+  Studio -> Folder -> Board
+  Studio -> Board (directo, sin carpeta)
 """
 import uuid
 from datetime import datetime, timezone
+from typing import Optional
 
 from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -18,7 +23,83 @@ def _uuid() -> str:
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    """Devuelve la hora actual como datetime NAIVE en UTC.
+
+    Convención del proyecto: todos los datetimes guardados en la BD son
+    naive pero representan siempre UTC.  Nunca usar datetime.now() a secas
+    (hora local) ni datetime.now(timezone.utc) directo (aware) en este
+    contexto sin .replace(tzinfo=None).
+    """
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    email: Mapped[str] = mapped_column(String(320), unique=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(200))
+    avatar_url: Mapped[str] = mapped_column(String(1000), default="")
+    auth_provider: Mapped[str] = mapped_column(String(50), default="google")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=_now, onupdate=_now
+    )
+
+    sessions: Mapped[list["Session"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+    studios: Mapped[list["Studio"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+
+
+class Session(Base):
+    __tablename__ = "sessions"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+    user: Mapped["User"] = relationship(back_populates="sessions")
+
+
+class Studio(Base):
+    __tablename__ = "studios"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    name: Mapped[str] = mapped_column(String(200))
+    color: Mapped[str] = mapped_column(String(20))
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+    user: Mapped["User"] = relationship(back_populates="studios")
+    folders: Mapped[list["Folder"]] = relationship(
+        back_populates="studio", cascade="all, delete-orphan"
+    )
+    boards: Mapped[list["Board"]] = relationship(
+        back_populates="studio", cascade="all, delete-orphan"
+    )
+
+
+class Folder(Base):
+    __tablename__ = "folders"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    name: Mapped[str] = mapped_column(String(200))
+    studio_id: Mapped[str] = mapped_column(
+        ForeignKey("studios.id", ondelete="CASCADE"), index=True
+    )
+
+    studio: Mapped["Studio"] = relationship(back_populates="folders")
+    boards: Mapped[list["Board"]] = relationship(
+        back_populates="folder", foreign_keys="[Board.folder_id]"
+    )
 
 
 class Board(Base):
@@ -26,11 +107,21 @@ class Board(Base):
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
     name: Mapped[str] = mapped_column(String(200), default="Tablero sin nombre")
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=_now, onupdate=_now
+        DateTime, default=_now, onupdate=_now
+    )
+    studio_id: Mapped[str] = mapped_column(
+        ForeignKey("studios.id", ondelete="CASCADE"), index=True
+    )
+    folder_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("folders.id", ondelete="SET NULL"), index=True, nullable=True
     )
 
+    studio: Mapped["Studio"] = relationship(back_populates="boards")
+    folder: Mapped[Optional["Folder"]] = relationship(
+        back_populates="boards", foreign_keys=[folder_id]
+    )
     nodes: Mapped[list["Node"]] = relationship(
         back_populates="board", cascade="all, delete-orphan"
     )

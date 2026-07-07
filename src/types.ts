@@ -63,3 +63,37 @@ export interface Edge {
   curved: boolean
   label: string
 }
+
+/* ------------------------------------------------------------------ */
+/*  Studios y Folders                                                  */
+/* ------------------------------------------------------------------ */
+
+export const STUDIO_COLORS = ["terracota", "azul", "verde", "dorado", "violeta", "turquesa"] as const
+
+export type StudioColor = (typeof STUDIO_COLORS)[number]
+
+export interface Studio {
+  id: string
+  name: string
+  color: StudioColor
+}
+
+export interface Folder {
+  id: string
+  name: string
+  studio_id: string
+}
+
+export interface BoardSummary {
+  id: string
+  name: string
+  created_at: string
+  updated_at: string
+  node_count: number
+  edge_count: number
+}
+
+export interface StudioBoards {
+  root_boards: BoardSummary[]
+  folder_boards: BoardSummary[]
+}

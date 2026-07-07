@@ -13,11 +13,10 @@ export interface PortPos {
 
 export type Pending = { nodeId: string; portId: string; color: PortColor } | null;
 
-export type Selection = { type: "node" | "edge"; id: string } | null;
-
 export type ColorMenu = { nodeId: string; portId: string; x: number; y: number } | null;
 
 export type DragState =
   | { kind: "pan"; sx: number; sy: number; vx: number; vy: number }
   | { kind: "node"; id: string; ox: number; oy: number }
+  | { kind: "group"; ids: string[]; origins: Record<string, { x: number; y: number }>; wx: number; wy: number; clickedId: string }
   | null;

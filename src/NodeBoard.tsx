@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import {
   Plus, Trash2, Moon, Sun, Spline, Minus, ZoomIn, ZoomOut, Maximize2, Clock,
-  ArrowLeft, Filter,
+  ArrowLeft, Filter, Settings, CircleUser,
 } from "lucide-react";
 import { useBoardPersistence } from "./api";
 import { PORT_COLORS } from "./types";
@@ -15,6 +15,8 @@ import { ToolBtn } from "./components/ToolBtn";
 import { Sep } from "./components/Sep";
 import { TagsModal } from "./components/TagsModal";
 import { FilterPanel } from "./components/FilterPanel";
+import { SettingsModal } from "./components/SettingsModal";
+import { ProfileMenu } from "./components/ProfileMenu";
 import { computeNodeOpacity, type FilterMode } from "./lib/filter";
 
 /* ------------------------------------------------------------------ */
@@ -31,14 +33,15 @@ const TIMELINE_W = 360;
 interface NodeBoardProps {
   boardId: string;
   onBack: () => void;
+  theme: string;
+  onToggleTheme: () => void;
 }
 
 /* ------------------------------------------------------------------ */
 /*  Componente principal                                               */
 /* ------------------------------------------------------------------ */
 
-export default function NodeBoard({ boardId, onBack }: NodeBoardProps) {
-  const [theme, setTheme] = useState("dark");
+export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: NodeBoardProps) {
   const T = THEMES[theme] || THEMES.dark;
 
   const [nodes, setNodes] = useState<Node[]>([]);
@@ -56,6 +59,11 @@ export default function NodeBoard({ boardId, onBack }: NodeBoardProps) {
   const [filterOpen, setFilterOpen] = useState(false);
   const [filterTags, setFilterTags] = useState<string[]>([]);
   const [filterMode, setFilterMode] = useState<FilterMode>("wide");
+
+  const [showGrid, setShowGrid] = useState(true);
+  const [showHelp, setShowHelp] = useState(true);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
 
   const [clipboard, setClipboard] = useState<Node[] | null>(null);
   const lastPasteOffset = useRef<{ dx: number; dy: number } | null>(null);
@@ -290,9 +298,9 @@ export default function NodeBoard({ boardId, onBack }: NodeBoardProps) {
       className="relative w-full h-screen overflow-hidden select-none"
       style={{
         background: T.bg,
-        backgroundImage: `radial-gradient(${T.dot} 1.6px, transparent 1.6px)`,
-        backgroundSize: `${26 * view.z}px ${26 * view.z}px`,
-        backgroundPosition: `${view.x}px ${view.y}px`,
+        backgroundImage: showGrid ? `radial-gradient(${T.dot} 1.6px, transparent 1.6px)` : undefined,
+        backgroundSize: showGrid ? `${26 * view.z}px ${26 * view.z}px` : undefined,
+        backgroundPosition: showGrid ? `${view.x}px ${view.y}px` : undefined,
         color: T.text,
         fontFamily: "'Inter','Segoe UI',system-ui,sans-serif",
         cursor: dragRef.current?.kind === "pan" ? "grabbing" : "default",
@@ -476,7 +484,7 @@ export default function NodeBoard({ boardId, onBack }: NodeBoardProps) {
         <ToolBtn T={T} label={defaultCurved ? "Conector: curvo" : "Conector: recto"} onClick={() => setDefaultCurved((c) => !c)}>
           {defaultCurved ? <Spline size={16} /> : <Minus size={16} />}
         </ToolBtn>
-        <ToolBtn T={T} label="Tema" onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>
+        <ToolBtn T={T} label="Tema" onClick={onToggleTheme}>
           {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
         </ToolBtn>
         <Sep T={T} />
@@ -484,6 +492,9 @@ export default function NodeBoard({ boardId, onBack }: NodeBoardProps) {
         <span className="text-xs w-10 text-center" style={{ color: T.sub }}>{Math.round(view.z * 100)}%</span>
         <ToolBtn T={T} label="Acercar" onClick={() => setView((v) => ({ ...v, z: Math.min(2.5, v.z * 1.1) }))}><ZoomIn size={16} /></ToolBtn>
         <ToolBtn T={T} label="Restablecer vista" onClick={() => setView({ x: 40, y: 20, z: 1 })}><Maximize2 size={16} /></ToolBtn>
+        <Sep T={T} />
+        <ToolBtn T={T} label="Ajustes" onClick={() => { setSettingsOpen(true); setProfileOpen(false); }}><Settings size={16} /></ToolBtn>
+        <ToolBtn T={T} label="Perfil" onClick={() => { setProfileOpen((v) => !v); setSettingsOpen(false); }}><CircleUser size={16} /></ToolBtn>
       </div>
 
       {/* ---------- Barra de acciones de selección ---------- */}
@@ -512,11 +523,38 @@ export default function NodeBoard({ boardId, onBack }: NodeBoardProps) {
         </div>
       )}
 
+      {/* ---------- Modal de ajustes ---------- */}
+      {settingsOpen && (
+        <SettingsModal
+          T={T} theme={theme} mode="board"
+          showGrid={showGrid}
+          defaultCurved={defaultCurved}
+          showHelp={showHelp}
+          onChangeShowGrid={setShowGrid}
+          onChangeDefaultCurved={setDefaultCurved}
+          onChangeShowHelp={setShowHelp}
+          onToggleTheme={onToggleTheme}
+          onReset={() => { setShowGrid(true); setDefaultCurved(true); setShowHelp(true); setView({ x: 40, y: 20, z: 1 }); }}
+          onClose={() => setSettingsOpen(false)}
+        />
+      )}
+
+      {/* ---------- Menú de perfil ---------- */}
+      {profileOpen && (
+        <ProfileMenu
+          T={T} theme={theme}
+          onCloseProfile={onBack}
+          onClose={() => setProfileOpen(false)}
+        />
+      )}
+
       {/* ---------- Ayuda ---------- */}
-      <div className="absolute bottom-4 left-4 text-[11px] leading-relaxed max-w-xs" style={{ color: T.sub }}>
-        Doble clic en el lienzo: nuevo nodo · Clic en un punto de color: iniciar/terminar conexión ·
-        Botón derecho en un punto: elegir color · Rueda: zoom · Arrastrar fondo: mover lienzo
-      </div>
+      {showHelp && (
+        <div className="absolute bottom-4 left-4 text-[11px] leading-relaxed max-w-xs" style={{ color: T.sub }}>
+          Doble clic en el lienzo: nuevo nodo · Clic en un punto de color: iniciar/terminar conexión ·
+          Botón derecho en un punto: elegir color · Rueda: zoom · Arrastrar fondo: mover lienzo
+        </div>
+      )}
     </div>
   );
 }

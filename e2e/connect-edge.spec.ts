@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { connectPorts, createCardNodeAndGetId, waitForBoardLoaded } from "./helpers";
+import { connectPorts, createCardNodeAndGetId, setupStudioAndBoard } from "./helpers";
 
 /**
  * Detección de la arista: las aristas no tienen data-testid, así que se usa un
@@ -13,8 +13,7 @@ import { connectPorts, createCardNodeAndGetId, waitForBoardLoaded } from "./help
  * los de la DB, de modo que sus puertos quedan siempre accesibles.
  */
 test("conectar A.out con B.in agrega una arista visible", async ({ page }) => {
-  await page.goto("/");
-  await waitForBoardLoaded(page);
+  await setupStudioAndBoard(page);
 
   const idA = await createCardNodeAndGetId(page);
   const idB = await createCardNodeAndGetId(page); // apilado sobre A

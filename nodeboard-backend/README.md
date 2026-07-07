@@ -10,7 +10,12 @@ nodeboard-backend/
 │   ├── database.py    # Motor SQLite y sesión
 │   ├── models.py      # ORM: Board, Node, Edge
 │   ├── schemas.py     # Pydantic (mismo formato que el frontend)
-│   └── main.py        # Endpoints REST
+│   └── main.py        # Endpoints REST + arranque de migraciones
+├── migrations/
+│   ├── env.py         # Config de Alembic (apunta a app.database.Base.metadata)
+│   ├── script.py.mako # Template de revisiones
+│   └── versions/      # Migraciones versionadas
+├── alembic.ini        # Config de Alembic
 ├── frontend/
 │   └── api.js         # Cliente fetch + hook useBoardPersistence (autosave)
 ├── requirements.txt
@@ -26,8 +31,25 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8000
 ```
 
-La base de datos `nodeboard.db` se crea sola en el primer arranque.
+La base de datos `nodeboard.db` se crea sola en el primer arranque (via Alembic migrations).
 Documentación interactiva en `http://localhost:8000/docs`.
+
+## Migraciones (Alembic)
+
+Las migraciones se ejecutan automáticamente al arrancar el backend (`alembic upgrade head`
+dentro del lifespan de FastAPI). Para generar una nueva migración tras cambiar los modelos:
+
+```bash
+cd nodeboard-backend
+.venv/bin/alembic revision --autogenerate -m "descripcion_del_cambio"
+```
+
+Revisar la migración generada en `migrations/versions/` antes de aplicarla.
+El autogenerate compara el metadata de `app.database.Base` contra el estado actual
+de la base de datos; si el diff es vacío la migración generada tendrá `upgrade()` vacío.
+
+La URL de la base de datos se lee de la variable de entorno `NODEBOARD_DB`
+(ver `app/database.py` y `package.json` → `dev:api`).
 
 ## Endpoints
 
@@ -36,6 +58,7 @@ Documentación interactiva en `http://localhost:8000/docs`.
 | GET | `/api/boards` | Lista de tableros con conteo de nodos/aristas |
 | POST | `/api/boards` | Crear tablero `{name}` |
 | GET | `/api/boards/{id}` | Estado completo: nodos + aristas |
+| GET | `/api/boards/{id}/tags` | Tags únicos usados por los nodos del tablero |
 | PATCH | `/api/boards/{id}` | Renombrar |
 | PUT | `/api/boards/{id}/state` | Guardar todo el estado (autosave) |
 | DELETE | `/api/boards/{id}` | Eliminar tablero |

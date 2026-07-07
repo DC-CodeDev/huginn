@@ -118,9 +118,58 @@ class EdgeUpdate(BaseModel):
     label: Optional[str] = None
 
 
+# ---------------------------------------------------------------- Auth
+class LoginRequest(BaseModel):
+    code: str
+
+
+class UserOut(BaseModel):
+    id: str
+    email: str
+    name: str
+    avatar_url: str
+    auth_provider: str
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ---------------------------------------------------------------- Studios y Folders
+StudioColor = Literal["terracota", "azul", "verde", "dorado", "violeta", "turquesa"]
+
+
+class StudioCreate(BaseModel):
+    name: str
+    color: StudioColor
+
+
+class StudioOut(BaseModel):
+    id: str
+    name: str
+    color: str
+    user_id: str
+    created_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+
+
+class FolderCreate(BaseModel):
+    name: str
+    studio_id: str
+
+
+class FolderOut(BaseModel):
+    id: str
+    name: str
+    studio_id: str
+    model_config = ConfigDict(from_attributes=True)
+
+
 # ---------------------------------------------------------------- Boards
 class BoardCreate(BaseModel):
     name: str = "Tablero sin nombre"
+    studio_id: str
+    folder_id: Optional[str] = None
 
 
 class BoardRename(BaseModel):
@@ -152,3 +201,9 @@ class BoardStateSave(BaseModel):
     name: Optional[str] = None
     nodes: list[NodeSchema] = Field(default_factory=list)
     edges: list[EdgeSchema] = Field(default_factory=list)
+
+
+class StudioBoardsOut(BaseModel):
+    """Boards de un Studio: separa raíz de los que están en carpetas."""
+    root_boards: list[BoardSummary]
+    folder_boards: list[BoardSummary]

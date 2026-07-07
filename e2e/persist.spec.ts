@@ -1,9 +1,8 @@
 import { test, expect } from "@playwright/test";
-import { waitForBoardLoaded } from "./helpers";
+import { setupStudioAndBoard } from "./helpers";
 
 test("un nodo creado persiste tras recargar la página", async ({ page }) => {
-  await page.goto("/");
-  await waitForBoardLoaded(page);
+  await setupStudioAndBoard(page);
 
   const nodes = page.locator('[data-testid^="node-"]');
   const idsBefore = await nodes.evaluateAll((els) =>
@@ -27,8 +26,15 @@ test("un nodo creado persiste tras recargar la página", async ({ page }) => {
   const newNodeId = idsAfter.find((id) => !idsBefore.includes(id));
   expect(newNodeId, "debería haber un nodo nuevo respecto al estado inicial").toBeTruthy();
 
+  // Recargar → vuelve al Home. Navegar de vuelta al board.
   await page.reload();
-  await waitForBoardLoaded(page);
+  // Home → click en el primer Studio
+  await expect(page.getByTestId(/^studio-card-/).first()).toBeVisible({ timeout: 5_000 });
+  await page.getByTestId(/^studio-card-/).first().click();
+  // Studio view → click en el primer board (recientes)
+  await expect(page.getByTestId(/^board-card-/).first()).toBeVisible({ timeout: 5_000 });
+  await page.getByTestId(/^board-card-/).first().click();
+  await expect(page.getByTestId("save-status")).toHaveText("guardado", { timeout: 15_000 });
 
   await expect(page.locator(`[data-testid="${newNodeId}"]`)).toBeVisible();
 });

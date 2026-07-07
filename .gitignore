@@ -20,3 +20,12 @@ __pycache__/
 test-results/
 playwright-report/
 e2e/.db/
+
+.env
+nodeboard-backend/.env
+
+# Build artifact pre-generado (el Dockerfile genera su propio build en deploy)
+nodeboard-backend/app/static/
+
+# Artifacto generado, no parte del build oficial
+huginn_standalone.html
