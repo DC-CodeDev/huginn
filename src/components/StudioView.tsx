@@ -117,7 +117,7 @@ export function StudioView({ studioId, onBack, onFolderClick, onBoardClick }: St
 
   if (!studio || folders === null || boards === null) {
     return (
-      <div className="w-full h-screen flex items-center justify-center" style={{ background: "var(--bg)" }}>
+      <div className="w-full app-dvh app-safe-page flex items-center justify-center" style={{ background: "var(--bg)" }}>
         <Loader2 className="animate-spin" size={32} style={{ color: "var(--sub)" }} />
       </div>
     );
@@ -130,8 +130,8 @@ export function StudioView({ studioId, onBack, onFolderClick, onBoardClick }: St
     + " relative";
 
   return (
-    <div className="w-full min-h-screen" style={{ background: "var(--bg)" }}>
-      <div className="max-w-5xl mx-auto px-6 py-8">
+    <div className="w-full app-dvh" style={{ background: "var(--bg)" }}>
+      <div className="max-w-5xl mx-auto px-6 py-8 app-safe-page">
         {/* Header */}
         <div className="flex items-center gap-4 mb-8">
           <button

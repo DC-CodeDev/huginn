@@ -19,6 +19,7 @@ import { SettingsModal } from "./components/SettingsModal";
 import { ProfileMenu } from "./components/ProfileMenu";
 import { useAuth } from "./lib/auth-context";
 import { computeNodeOpacity, type FilterMode } from "./lib/filter";
+import { usePwa } from "./lib/pwa";
 
 /* ------------------------------------------------------------------ */
 /*  Constantes de geometría y tema                                     */
@@ -44,6 +45,7 @@ interface NodeBoardProps {
 
 export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: NodeBoardProps) {
   const { user, logout } = useAuth();
+  const { setSaveStatus } = usePwa();
   const T = THEMES[theme] || THEMES.dark;
 
   const [nodes, setNodes] = useState<Node[]>([]);
@@ -84,6 +86,11 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
   }, [boardId]);
 
   const [view, setView] = useState({ x: 40, y: 20, z: 1 });
+
+  useEffect(() => {
+    setSaveStatus(status);
+    return () => setSaveStatus(null);
+  }, [setSaveStatus, status]);
 
   const viewRef = useRef(view);
   viewRef.current = view;
@@ -304,7 +311,7 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
   return (
     <div
       ref={canvasRef}
-      className="relative w-full h-screen overflow-hidden select-none"
+      className="relative w-full app-dvh overflow-hidden select-none"
       style={{
         background: T.bg,
         backgroundImage: showGrid ? `radial-gradient(${T.dot} 1.6px, transparent 1.6px)` : undefined,
@@ -469,7 +476,7 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
 
       {/* ---------- Barra de herramientas ---------- */}
       <div
-        className="absolute top-4 left-4 flex items-center gap-1 rounded-2xl px-2 py-1.5"
+        className="absolute app-safe-top-left flex items-center gap-1 rounded-2xl px-2 py-1.5 max-w-[calc(100%-32px-var(--safe-left)-var(--safe-right))]"
         style={{ background: T.card, border: `1px solid ${T.cardBorder}`, boxShadow: "0 14px 34px -14px rgba(0,0,0,.6)" }}
       >
         <ToolBtn T={T} testId="back-btn" label="Volver" onClick={onBack}><ArrowLeft size={16} /></ToolBtn>
@@ -518,7 +525,7 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
       {/* ---------- Barra de acciones de selección ---------- */}
       {(selectedNodeIds.length > 0 || selectedEdgeId) && (
         <div
-          className="absolute bottom-5 left-1/2 -translate-x-1/2 flex items-center gap-1 rounded-2xl px-2 py-1.5"
+          className="absolute app-safe-bottom-center flex items-center gap-1 rounded-2xl px-2 py-1.5"
           style={{ background: T.card, border: `1px solid ${T.cardBorder}`, boxShadow: "0 14px 34px -14px rgba(0,0,0,.6)" }}
         >
           {selectedEdge && (
@@ -570,7 +577,7 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
 
       {/* ---------- Ayuda ---------- */}
       {showHelp && (
-        <div className="absolute bottom-4 left-4 text-[11px] leading-relaxed max-w-xs" style={{ color: T.sub }}>
+        <div className="absolute app-safe-bottom-left text-[11px] leading-relaxed max-w-xs" style={{ color: T.sub }}>
           Doble clic en el lienzo: nuevo nodo · Clic en un punto de color: iniciar/terminar conexión ·
           Botón derecho en un punto: elegir color · Rueda: zoom · Arrastrar fondo: mover lienzo
         </div>

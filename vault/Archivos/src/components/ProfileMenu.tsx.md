@@ -1,14 +1,17 @@
 import { LogOut, CircleUser } from "lucide-react";
 import type { Theme } from "../lib/theme";
+import type { User } from "../lib/auth-context";
 
 interface ProfileMenuProps {
   T: Theme;
   theme: string;
+  user: User;
+  onLogout: () => void;
   onCloseProfile: () => void;
   onClose: () => void;
 }
 
-export function ProfileMenu({ T, theme, onCloseProfile, onClose }: ProfileMenuProps) {
+export function ProfileMenu({ T, theme, user, onLogout, onCloseProfile, onClose }: ProfileMenuProps) {
   return (
     <>
       {/* Backdrop */}
@@ -20,9 +23,9 @@ export function ProfileMenu({ T, theme, onCloseProfile, onClose }: ProfileMenuPr
       <div
         className="absolute z-50 rounded-xl py-1.5 min-w-[180px]"
         style={{
-          top: 56,
+          top: "calc(56px + var(--safe-top))",
           left: "auto",
-          right: 16,
+          right: "calc(16px + var(--safe-right))",
           background: T.card,
           border: `1px solid ${T.cardBorder}`,
           boxShadow: theme === "dark"
@@ -35,8 +38,8 @@ export function ProfileMenu({ T, theme, onCloseProfile, onClose }: ProfileMenuPr
         <div className="flex items-center gap-2.5 px-3.5 py-2.5" style={{ borderBottom: `1px solid ${T.cardBorder}` }}>
           <CircleUser size={20} style={{ color: T.sub }} />
           <div className="flex flex-col">
-            <span className="text-sm font-medium leading-tight" style={{ color: T.text }}>Usuario</span>
-            <span className="text-[11px]" style={{ color: T.sub }}>huginn@local</span>
+            <span className="text-sm font-medium leading-tight" style={{ color: T.text }}>{user.name}</span>
+            <span className="text-[11px]" style={{ color: T.sub }}>{user.email}</span>
           </div>
         </div>
 
@@ -45,9 +48,9 @@ export function ProfileMenu({ T, theme, onCloseProfile, onClose }: ProfileMenuPr
           <button
             className="flex items-center gap-2.5 w-full px-3.5 py-2 text-sm hover:opacity-80 transition-opacity"
             style={{ color: "#F87171" }}
-            onClick={() => { onCloseProfile(); onClose(); }}
+            onClick={() => { onLogout(); onCloseProfile(); onClose(); }}
           >
-            <LogOut size={15} /> Cerrar perfil
+            <LogOut size={15} /> Cerrar sesión
           </button>
         </div>
       </div>

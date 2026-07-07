@@ -38,7 +38,9 @@ Ejecución:
   uvicorn app.main:app --reload --port 8001
 """
 import os
+import re
 import uuid
+import mimetypes
 
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -48,8 +50,8 @@ from alembic import command
 from dotenv import load_dotenv
 from fastapi import Cookie, Depends, FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
+from starlette.datastructures import MutableHeaders
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from sqlalchemy import event, func, or_, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
@@ -74,6 +76,21 @@ def _enable_sqlite_fk(dbapi_conn, _):
 _ALEMBIC_CFG = os.path.join(os.path.dirname(__file__), "..", "alembic.ini")
 
 _COOKIE_SESSION = "session"
+_STATIC_DIR = Path(__file__).resolve().parent / "static"
+_HASHED_ASSET_RE = re.compile(r"[-.][A-Za-z0-9_-]{8,}\.")
+_PWA_ROOT_NO_CACHE_PATHS = {"/sw.js", "/manifest.webmanifest", "/offline.html"}
+_LONG_CACHE_STATIC_PATHS = {
+    "/apple-touch-icon.png",
+    "/favicon.ico",
+}
+_SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "X-Frame-Options": "DENY",
+    "Permissions-Policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+}
+mimetypes.add_type("application/manifest+json", ".webmanifest")
+mimetypes.add_type("application/javascript", ".js")
 
 
 @asynccontextmanager
@@ -101,6 +118,122 @@ app.add_middleware(
 
 
 # ------------------------------------------------------------------ auth deps
+
+
+def _is_true(value: str | None) -> bool:
+    return (value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _environment() -> str:
+    return os.getenv("ENVIRONMENT", "development").strip().lower()
+
+
+def _is_production() -> bool:
+    return _environment() == "production"
+
+
+def _cookie_secure() -> bool:
+    override = os.getenv("COOKIE_SECURE")
+    if override is not None:
+        return _is_true(override)
+    return _is_production()
+
+
+def _session_cookie_options() -> dict[str, object]:
+    return {
+        "httponly": True,
+        "secure": _cookie_secure(),
+        "samesite": "lax",
+        "path": "/",
+        "max_age": auth.SESSION_DURATION_DAYS * 24 * 3600,
+    }
+
+
+def _session_cookie_delete_options() -> dict[str, object]:
+    options = _session_cookie_options().copy()
+    options.pop("max_age", None)
+    return options
+
+
+def _looks_like_hashed_asset(path: str) -> bool:
+    if not path.startswith("/assets/"):
+        return False
+    return bool(_HASHED_ASSET_RE.search(Path(path).name))
+
+
+def _looks_like_file_request(full_path: str) -> bool:
+    return "." in Path(full_path).name
+
+
+def _resolve_static_file(full_path: str) -> Path | None:
+    if not full_path:
+        return None
+    candidate = (_STATIC_DIR / full_path).resolve()
+    try:
+        candidate.relative_to(_STATIC_DIR.resolve())
+    except ValueError:
+        return None
+    return candidate if candidate.is_file() else None
+
+
+def _static_response(path: Path) -> Response:
+    media_type, _ = mimetypes.guess_type(path.name)
+    return Response(
+        content=path.read_bytes(),
+        media_type=media_type or "application/octet-stream",
+    )
+
+
+def _cache_control_for(path: str, status_code: int, content_type: str) -> str | None:
+    if path == "/api/health":
+        return "no-store"
+    if path.startswith("/api/"):
+        return "private, no-store"
+    if path in _PWA_ROOT_NO_CACHE_PATHS:
+        return "no-cache"
+    if path.startswith("/icons/") or path in _LONG_CACHE_STATIC_PATHS:
+        return "public, max-age=31536000, immutable"
+    if status_code < 400 and _looks_like_hashed_asset(path):
+        return "public, max-age=31536000, immutable"
+    if content_type == "text/html":
+        return "no-cache"
+    return None
+
+
+def _security_headers_for(scheme: str) -> dict[str, str]:
+    headers = dict(_SECURITY_HEADERS)
+    if _is_production() and scheme == "https":
+        headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    return headers
+
+
+class ResponseHeadersMiddleware:
+    def __init__(self, app: ASGIApp):
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        path = scope.get("path", "")
+        scheme = scope.get("scheme", "http")
+
+        async def send_wrapper(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                headers = MutableHeaders(scope=message)
+                content_type = headers.get("content-type", "").split(";", 1)[0].strip().lower()
+                cache_control = _cache_control_for(path, message["status"], content_type)
+                if cache_control:
+                    headers["Cache-Control"] = cache_control
+                for header, value in _security_headers_for(scheme).items():
+                    headers.setdefault(header, value)
+            await send(message)
+
+        await self.app(scope, receive, send_wrapper)
+
+
+app.add_middleware(ResponseHeadersMiddleware)
 
 
 def get_current_user(
@@ -277,9 +410,7 @@ def login(payload: schemas.LoginRequest, response: Response, db: Session = Depen
     response.set_cookie(
         key=_COOKIE_SESSION,
         value=session.id,
-        httponly=True,
-        samesite="lax",
-        max_age=7 * 24 * 3600,
+        **_session_cookie_options(),
     )
     return schemas.UserOut.model_validate(user)
 
@@ -296,7 +427,7 @@ def logout(
         if session:
             db.delete(session)
             db.commit()
-    response.delete_cookie(key=_COOKIE_SESSION)
+    response.delete_cookie(key=_COOKIE_SESSION, **_session_cookie_delete_options())
 
 
 @app.get("/api/auth/me", response_model=schemas.UserOut)
@@ -723,7 +854,7 @@ def delete_edge(
 # ------------------------------------------------------------------ health
 
 
-@app.get("/api/health")
+@app.api_route("/api/health", methods=["GET", "HEAD"])
 def health():
     return {"status": "ok"}
 
@@ -740,20 +871,15 @@ def health():
 # En desarrollo local este directorio no existe (Vite sirve el
 # frontend con su proxy), así que el bloque se saltea.
 
-_STATIC_DIR = Path(__file__).resolve().parent / "static"
-
 if _STATIC_DIR.is_dir():
-    _assets_dir = _STATIC_DIR / "assets"
-    if _assets_dir.is_dir():
-        app.mount(
-            "/assets",
-            StaticFiles(directory=str(_assets_dir)),
-            name="assets",
-        )
-
-    @app.get("/{full_path:path}")
+    @app.api_route("/{full_path:path}", methods=["GET", "HEAD"], include_in_schema=False)
     async def _serve_spa(full_path: str):
         # No capturar rutas /api/* que no existen (responder 404 limpio)
         if full_path.startswith("api/"):
             raise HTTPException(404, "Not found")
-        return FileResponse(str(_STATIC_DIR / "index.html"))
+        static_file = _resolve_static_file(full_path)
+        if static_file:
+            return _static_response(static_file)
+        if _looks_like_file_request(full_path):
+            raise HTTPException(404, "Not found")
+        return _static_response(_STATIC_DIR / "index.html")

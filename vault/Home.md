@@ -2,7 +2,7 @@
 
 Documentación arquitectural del canvas de nodos **Huginn**: frontend Vite + React + TypeScript, backend FastAPI + SQLAlchemy + SQLite (`nodeboard-backend/`).
 
-**Estado actual:** Frontend completo y tipado (post Fase 0, sin `@ts-nocheck`, modularizado). Backend completo con persistencia y autosave. Suite de tests: unit (vitest sobre `geometry`), API (pytest) y e2e (Playwright, 6 specs / 12 tests en verde).
+**Estado actual:** PWA Fase 1 completa. La aplicación es instalable, tiene service worker con precache de assets, fallback offline, actualización controlada (acción manual, bloqueada mientras guarda), detección online/offline con avisos visuales, safe areas y altura dinámica (`100dvh`). Suite de tests: 38 vitest, 45 pytest, build y Docker verificados.
 
 **Fase 1 — modelo de datos real:**
 - ✅ **Paso 1 (`models.py`)**: `tags` (JSON) agregado a `nodes`, `label` (texto) agregado a `edges`; `nodeboard.db` migrado vía `ALTER TABLE` sin pérdida de datos.
@@ -34,6 +34,20 @@ Documentación arquitectural del canvas de nodos **Huginn**: frontend Vite + Rea
 - ✅ **Tests de orden de rutas**: `test_catch_all_source_ordering` (parsea `main.py` y verifica que el catch-all sea el último decorador) + `test_catch_all_ordering_at_runtime` (recorre `app.routes` si el build de frontend existe). Suite: 35 backend (34 pass + 1 xfail), 18 vitest.
 - ✅ **Documentación de ruteo**: [[PATHS_ETAPA3.md]] — inventario completo de los 25 endpoints HTTP. [[RESUMEN_ROUTING_ETAPA3.md]] — análisis de CORS, routers, StaticFiles, puerto y estructura. [[RESUMEN_ETAPA3.md]] — resumen de cambios. [[RESUMEN_LOGOUT_AUTO.md]] — patrón del callback de 401.
 
+**Fase PWA — Phase 1 (instalable + offline fallback + actualización controlada):**
+- ✅ **Manifest**: `/manifest.webmanifest` con `display: standalone`, `theme_color: #0F1117`, `background_color: #0F1117`, scope `/`, iconos 192/512 maskable y apple-touch.
+- ✅ **Service worker custom**: `injectManifest` desde `src/sw.ts`, precache de 19 entries (assets + offline.html), `NetworkOnly` para `/api/*` y escrituras, navegación con fallback a `/offline.html`.
+- ✅ **Registro SW**: `src/lib/pwa.ts` con `Workbox` (workbox-window), solo en producción, detecta `waiting` sin `skipWaiting` automático.
+- ✅ **Actualización controlada**: aviso visual con botón "Actualizar", bloqueado mientras el board está `guardando`, advertencia si hay `error`. `skipWaiting` solo tras acción manual. Recarga tras `controllerchange`.
+- ✅ **Conectividad online/offline**: `src/lib/connectivity.ts` — `useOnlineStatus()` basado en `navigator.onLine` + eventos `online`/`offline`. Documentado que no garantiza backend disponible.
+- ✅ **Avisos visuales**: `PwaNoticeCenter` — aviso "Sin conexión" y aviso "Nueva versión disponible" con acciones Actualizar/Más tarde.
+- ✅ **Safe areas**: variables CSS `--safe-top/right/bottom/left` con `env(safe-area-inset-*)`, utilidades `.app-safe-page`, `.app-safe-top-left`, `.app-safe-bottom-center`, `.app-modal-backdrop`. Aplicado en Login, Home, NodeBoard, AppBar, modales, ProfileMenu.
+- ✅ **Altura dinámica**: `--app-dvh: 100vh` con override `@supports (height: 100dvh)`, reemplazados usos de `h-screen`/`100vh` en pantallas principales.
+- ✅ **Offline fallback**: `/offline.html` servido desde precache del SW, sin dependencia React, con botón "Reintentar".
+- ✅ **Tests**: 38 vitest (registro SW, waiting, conectividad, render avisos) + 45 pytest (manifest, SW, offline, headers, iconos).
+- ✅ **Build + Docker**: build Vite con SW injectado, Docker sirve todos los recursos PWA con MIME y cache-control correctos.
+- ⏳ **CSP**: postergada — documentada en `PWA_READINESS_AUDIT.md` con directivas recomendadas. Requiere `'unsafe-inline'` para estilos, Google Fonts, imágenes `data:` y `connect-src` dinámico.
+
 **Preparación Etapa 2 — Alembic:**
 - ✅ **Alembic instalado e inicializado**: migraciones versionadas reemplazan `Base.metadata.create_all()`. Baseline generada con autogenerate, diff vacío verificado. Ejecución automática vía `alembic upgrade head` en el lifespan de FastAPI. Documentado en [[Archivos/nodeboard-backend/migrations/env.py.md]], [[Archivos/nodeboard-backend/alembic.ini.md]], y [[Archivos/nodeboard-backend/migrations/versions/e10b08b208d0_initial_schema.py.md]].
 
@@ -49,11 +63,12 @@ Documentación arquitectural del canvas de nodos **Huginn**: frontend Vite + Rea
 - [[Archivos/tsconfig.app.json.md]] — TS estricto, `react-jsx`, `noEmit`
 
 ### `src/` — Frontend (React + Vite)
-- [[Archivos/src/main.tsx.md]] — **entrypoint + navegación**: monta `<App />` con 4 vistas (Home, Studio, Folder, Board) manejadas por estado
-- [[Archivos/src/NodeBoard.tsx.md]] — **hub del canvas**: estado del canvas, zoom/pan/drag, selección, conexión de puertos, toolbar — ahora recibe `boardId` y `onBack` como props
+- [[Archivos/src/main.tsx.md]] — **entrypoint + navegación**: monta `<App />` con `PwaProvider` + `AuthProvider` + `PwaNoticeCenter`, 4 vistas (Home, Studio, Folder, Board)
+- [[Archivos/src/NodeBoard.tsx.md]] — **hub del canvas**: estado del canvas, zoom/pan/drag, selección, conexión de puertos, toolbar — reporta `saveStatus` al contexto PWA
 - [[Archivos/src/types.ts.md]] — **fuente de verdad del dominio**: `Node` (card|timeline), `Edge`, `Port`, `Block`, `PORT_COLORS`, `StudioColor`, `Studio`, `Folder`, `BoardSummary`
-- [[Archivos/src/api.ts.md]] — capa HTTP (`api`) + hook `useBoardPersistence` (ahora recibe `boardId` en vez de auto-crear)
-- [[Archivos/src/styles.css.md]] — import de Tailwind + reset base
+- [[Archivos/src/api.ts.md]] — capa HTTP (`api`) + hook `useBoardPersistence` + `SaveStatus` usado por PWA
+- [[Archivos/src/styles.css.md]] — import de Tailwind + reset base + safe areas CSS + `--app-dvh` + avisos PWA
+- [[Archivos/src/sw.ts.md]] — **service worker custom**: precache, `NetworkOnly` para `/api/*` y escrituras, navegación con fallback offline
 - [[Archivos/src/vite-env.d.ts.md]] — referencia de tipos de Vite
 
 ### `src/lib/` — Utilidades puras
@@ -62,6 +77,10 @@ Documentación arquitectural del canvas de nodos **Huginn**: frontend Vite + Rea
 - [[Archivos/src/lib/canvas-types.ts.md]] — tipos de estado de interacción (`Pending`, `DragState`, `ColorMenu`, `PortPos`); `Selection` eliminado en Fase 2
 - [[Archivos/src/lib/theme.ts.md]] — `THEMES` (dark/light) y la interfaz `Theme`
 - [[Archivos/src/lib/id.ts.md]] — `uid()`: generador de IDs únicos del frontend
+- [[Archivos/src/lib/pwa.ts.md]] — **registro SW + contexto PWA**: `PwaProvider`, `usePwa()`, detección `waiting`, `skipWaiting` controlado, integración con `saveStatus`
+- [[Archivos/src/lib/pwa.test.ts.md]] — tests: registro SW, waiting, update helpers, controllerchange
+- [[Archivos/src/lib/connectivity.ts.md]] — **estado online/offline**: `useOnlineStatus()`, `readOnlineStatus()`, `subscribeToConnectivity()`
+- [[Archivos/src/lib/connectivity.test.ts.md]] — tests: conectividad, cleanup, sin colas/reintentos
 
 ### `src/components/` — Componentes UI
 - [[Archivos/src/components/Home.tsx.md]] — **grilla de Studios**: fetch real, estados carga/vacío/grid, modal de creación
@@ -77,6 +96,8 @@ Documentación arquitectural del canvas de nodos **Huginn**: frontend Vite + Rea
 - [[Archivos/src/components/MiniBtn.tsx.md]] — botón chico (controles de tabla)
 - [[Archivos/src/components/ToolBtn.tsx.md]] — botón de la barra de herramientas
 - [[Archivos/src/components/Sep.tsx.md]] — separador vertical de la toolbar
+- [[Archivos/src/components/PwaNoticeCenter.tsx.md]] — **avisos PWA**: notificación offline + notificación de nueva versión con acciones Actualizar/Más tarde
+- [[Archivos/src/components/PwaNoticeCenter.test.tsx.md]] — tests: render offline notice, update notice, respeto de guardando/error
 
 ### `nodeboard-backend/app/` — Backend (FastAPI)
 - [[Archivos/nodeboard-backend/app/main.py.md]] — **hub del backend**: todos los endpoints REST, traducción modelo↔schema de `Edge`
@@ -88,6 +109,7 @@ Documentación arquitectural del canvas de nodos **Huginn**: frontend Vite + Rea
 ### `nodeboard-backend/` — Tests y deps del backend
 - [[Archivos/nodeboard-backend/tests/test_api.py.md]] — pytest: salud, rutas y contrato de `BoardStateSave`
 - [[Archivos/nodeboard-backend/tests/test_tags_label.py.md]] — pytest e2e: propagación de `tags` (Node) y `label` (Edge)
+- [[Archivos/nodeboard-backend/tests/test_pwa_phase0.py.md]] — pytest PWA: manifest, SW, offline, headers, iconos, cookies, HSTS, seguridad
 - [[Archivos/nodeboard-backend/requirements.txt.md]] — fastapi, uvicorn, sqlalchemy, pydantic, pytest, httpx, alembic
 - [[Archivos/nodeboard-backend/pytest.ini.md]] — config pytest: fija rootdir y `pythonpath` para resolver `app` desde cualquier cwd
 - [[Archivos/nodeboard-backend/alembic.ini.md]] — config de Alembic (URL vía `NODEBOARD_DB`)
@@ -163,3 +185,7 @@ con el código fuente — son instantáneas para revisión externa.
 - [[PATHS_ETAPA3.md]] — lista completa de los 25 paths HTTP en main.py
 - [[RESUMEN_ETAPA3.md]] — cambios realizados en la Etapa 3 (CORS por env, StaticFiles, catch-all, entrypoint.sh, Dockerfile)
 - [[RESUMEN_LOGOUT_AUTO.md]] — logout automático por sesión expirada vía callback de 401
+- [[PWA_READINESS_AUDIT.md]] — auditoría de preparación PWA antes de la Fase 1
+- [[PWA_PHASE_0_REPORT.md]] — informe de Fase 0: catch-all, cookies, cache headers, seguridad, secrets
+- [[PWA_PHASE_1_CORE_REPORT.md]] — informe de Fase 1 Core: manifest, SW, offline, registro
+- [[PWA_PHASE_1_FINAL_REPORT.md]] — informe final de Fase 1: actualización controlada, conectividad, safe areas, tests, Docker

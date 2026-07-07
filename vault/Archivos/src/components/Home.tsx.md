@@ -51,7 +51,7 @@ export function Home({ onStudioClick }: HomeProps) {
 
   if (studios === null) {
     return (
-      <div className="w-full h-screen flex items-center justify-center" style={{ background: "var(--bg)" }}>
+      <div className="w-full app-dvh app-safe-page flex items-center justify-center" style={{ background: "var(--bg)" }}>
         <Loader2 className="animate-spin" size={32} style={{ color: "var(--sub)" }} />
       </div>
     );
@@ -60,15 +60,15 @@ export function Home({ onStudioClick }: HomeProps) {
   const isEmpty = studios.length === 0 && !showCreate;
 
   return (
-    <div className="w-full min-h-screen" style={{ background: "var(--bg)" }}>
+    <div className="w-full app-dvh" style={{ background: "var(--bg)" }}>
       {isEmpty ? (
         /* ── 1d: Empty State ── */
         <div
           style={{
-            width: "100%", height: "100vh",
+            width: "100%", minHeight: "var(--app-dvh)",
             background: "var(--bg)",
             display: "flex", flexDirection: "column",
-            padding: "52px 60px",
+            padding: "calc(52px + var(--safe-top)) calc(60px + var(--safe-right)) calc(52px + var(--safe-bottom)) calc(60px + var(--safe-left))",
             fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif",
             color: "var(--text)",
           }}
@@ -141,9 +141,9 @@ export function Home({ onStudioClick }: HomeProps) {
         /* ── 1c: Dashboard con Estudios (Variante B — ficha con color) ── */
         <div
           style={{
-            width: "100%", minHeight: "100vh",
+            width: "100%", minHeight: "var(--app-dvh)",
             background: "var(--bg)",
-            padding: "52px 60px",
+            padding: "calc(52px + var(--safe-top)) calc(60px + var(--safe-right)) calc(52px + var(--safe-bottom)) calc(60px + var(--safe-left))",
             fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif",
             color: "var(--text)",
           }}

@@ -25,7 +25,7 @@ export function ConfirmDeleteModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center"
+      className="fixed inset-0 z-50 flex items-center justify-center app-modal-backdrop"
       style={{ background: "rgba(0,0,0,.55)" }}
       onMouseDown={(e) => { if (e.target === e.currentTarget) onCancel(); }}
     >

@@ -1,23 +1,28 @@
 **Ruta:** `package.json`
 
 ## Responsabilidad
-Manifiesto del frontend + orquestación de dev/test del monorepo (frontend Vite + backend uvicorn vía `concurrently`).
+Manifiesto del frontend + orquestacion de dev/test del monorepo (frontend Vite + backend uvicorn via `concurrently`).
 
 ## Scripts
 - `dev` — `concurrently` de `dev:api` + `dev:web`
 - `dev:web` — `vite` (puerto 5174)
 - `dev:api` — uvicorn `app.main:app` en :8001 con `NODEBOARD_DB` (default `sqlite:///./nodeboard-backend/nodeboard.db`), venv `nodeboard-backend/.venv`
 - `build` — `tsc -b && vite build`
-- `preview` — `vite preview`
-- `test` — `vitest` (unit de `geometry`)
-- `test:api` — pytest sobre `nodeboard-backend/tests`
+- `test` — `vitest`
+- `test:api` — pytest en `nodeboard-backend/tests`
 
-## Dependencias
-- runtime: `react`, `react-dom`, `lucide-react`, `@tailwindcss/vite`, `@vitejs/plugin-react`
-- dev: `@playwright/test`, `typescript`, `vite`, `vitest`, `tailwindcss`, `concurrently`, tipos React
+## Dependencias PWA anadidas
+- `vite-plugin-pwa` ^1.3.0 — build del service worker via `injectManifest`
+- `workbox-window` ^7.4.1 — registro del SW y deteccion de update `waiting`
 
-## Nota
-Los tests e2e (Playwright) se corren con `npx playwright test` — no hay script dedicado en `package.json`; la config es [[../Archivos/playwright.config.ts.md]].
+## Dependencias de produccion
+- `react`, `react-dom`, `lucide-react`
+
+## Dependencias de desarrollo
+- `@types/react`, `@types/react-dom`, `typescript`, `vite`, `@vitejs/plugin-react`, `@tailwindcss/vite`, `tailwindcss`
+- `vitest`, `playwright`
+- `vite-plugin-pwa`, `workbox-window`, `workbox-precaching`, `workbox-routing`, `workbox-strategies`
 
 ## Importado por
-- Toolchain (npm) y [[../Archivos/vite.config.ts.md]] / [[../Archivos/playwright.config.ts.md]] (a través de los scripts)
+- Toolchain Vite
+- Dockerfile (copia `package.json`)

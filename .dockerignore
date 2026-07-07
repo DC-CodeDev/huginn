@@ -1,0 +1,14 @@
+.git
+.gitignore
+node_modules
+dist
+.env
+nodeboard-backend/.env
+nodeboard-backend/.venv
+nodeboard-backend/.pytest_cache
+nodeboard-backend/__pycache__
+nodeboard-backend/app/static
+test-results
+playwright-report
+e2e/.db
+vault

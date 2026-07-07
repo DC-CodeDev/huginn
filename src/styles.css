@@ -14,8 +14,19 @@
   --btn-overlay: rgba(255,255,255,0.06);
   --btn-overlay-border: rgba(255,255,255,0.08);
   --dashed-border: rgba(255,255,255,0.1);
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --app-dvh: 100vh;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
+}
+
+@supports (height: 100dvh) {
+  :root {
+    --app-dvh: 100dvh;
+  }
 }
 
 [data-theme="light"] {
@@ -36,13 +47,115 @@
 
 * { box-sizing: border-box; }
 html, body, #root {
-  width: 100%; height: 100%; margin: 0;
+  width: 100%; min-height: var(--app-dvh); margin: 0;
   background: var(--bg);
   font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
   color: var(--text);
   transition: background 0.2s, color 0.2s;
 }
 button, input, textarea { font: inherit; }
+
+.app-dvh {
+  min-height: var(--app-dvh);
+}
+
+.app-safe-page {
+  padding-top: var(--safe-top);
+  padding-right: var(--safe-right);
+  padding-bottom: var(--safe-bottom);
+  padding-left: var(--safe-left);
+}
+
+.app-safe-top-left {
+  top: calc(16px + var(--safe-top));
+  left: calc(16px + var(--safe-left));
+}
+
+.app-safe-top-right {
+  top: calc(16px + var(--safe-top));
+  right: calc(16px + var(--safe-right));
+}
+
+.app-safe-bottom-left {
+  bottom: calc(16px + var(--safe-bottom));
+  left: calc(16px + var(--safe-left));
+}
+
+.app-safe-bottom-center {
+  bottom: calc(20px + var(--safe-bottom));
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.app-modal-backdrop {
+  padding: calc(20px + var(--safe-top)) calc(16px + var(--safe-right)) calc(20px + var(--safe-bottom)) calc(16px + var(--safe-left));
+}
+
+.app-notice-stack {
+  position: fixed;
+  z-index: 70;
+  top: calc(16px + var(--safe-top));
+  left: 50%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(100vw - 32px - var(--safe-left) - var(--safe-right), 420px);
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.app-notice {
+  pointer-events: auto;
+  border-radius: 18px;
+  padding: 14px 16px;
+  box-shadow: 0 18px 40px -20px rgba(0,0,0,.6);
+}
+
+.app-notice-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.app-notice-copy {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--sub);
+}
+
+.app-notice-copy-subtle {
+  opacity: 0.85;
+}
+
+.app-notice-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.app-notice-btn {
+  border: 1px solid var(--card-border);
+  border-radius: 999px;
+  padding: 7px 12px;
+  background: var(--field);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.app-notice-btn:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.app-notice-btn-primary {
+  background: rgba(196,132,122,0.14);
+  border-color: rgba(196,132,122,0.4);
+  color: var(--accent);
+}
 
 /* ── Clases utilitarias para el Home (del showcase huginn_standalone.html) ── */
 

@@ -5,10 +5,12 @@ import { Home } from "./components/Home";
 import { StudioView } from "./components/StudioView";
 import { FolderView } from "./components/FolderView";
 import { AppBar } from "./components/AppBar";
+import { PwaNoticeCenter } from "./components/PwaNoticeCenter";
 import { SettingsModal } from "./components/SettingsModal";
 import { ProfileMenu } from "./components/ProfileMenu";
 import { Login, AuthLoader } from "./components/Login";
 import { AuthProvider, useAuth } from "./lib/auth-context";
+import { PwaProvider } from "./lib/pwa";
 import { THEMES } from "./lib/theme";
 import { ThemeContext } from "./lib/theme-context";
 import type { ThemeCtx } from "./lib/theme-context";
@@ -89,38 +91,26 @@ function AppInner() {
 
   // ── Auth: determinar pantalla ─────────────────────────────────
 
-  // 1. Mientras se resuelve la sesión inicial
-  if (loading) {
-    return (
-      <ThemeContext.Provider value={ctx}>
-        <AuthLoader />
-      </ThemeContext.Provider>
-    );
-  }
-
-  // 2. Callback de Google OAuth: detectar ?code= en la URL
-  const isCallback = window.location.pathname === "/auth/callback" &&
-    new URLSearchParams(window.location.search).has("code");
-
-  if (isCallback) {
-    return (
-      <ThemeContext.Provider value={ctx}>
-        <CallbackHandler onLogin={login} />
-      </ThemeContext.Provider>
-    );
-  }
-
-  // 3. Sin sesión → Login
-  if (!user) {
-    return (
-      <ThemeContext.Provider value={ctx}>
-        <Login />
-      </ThemeContext.Provider>
-    );
-  }
-
-  // 4. Con sesión: render normal
   const renderView = () => {
+    // 1. Mientras se resuelve la sesión inicial
+    if (loading) {
+      return <AuthLoader />;
+    }
+
+    // 2. Callback de Google OAuth: detectar ?code= en la URL
+    const isCallback = window.location.pathname === "/auth/callback" &&
+      new URLSearchParams(window.location.search).has("code");
+
+    if (isCallback) {
+      return <CallbackHandler onLogin={login} />;
+    }
+
+    // 3. Sin sesión → Login
+    if (!user) {
+      return <Login />;
+    }
+
+    // 4. Con sesión: render normal
     switch (view.kind) {
     case "home":
       return (
@@ -204,15 +194,18 @@ function AppInner() {
   return (
     <ThemeContext.Provider value={ctx}>
       {renderView()}
+      <PwaNoticeCenter />
     </ThemeContext.Provider>
   );
 }
 
 function App() {
   return (
-    <AuthProvider>
-      <AppInner />
-    </AuthProvider>
+    <PwaProvider>
+      <AuthProvider>
+        <AppInner />
+      </AuthProvider>
+    </PwaProvider>
   );
 }
 

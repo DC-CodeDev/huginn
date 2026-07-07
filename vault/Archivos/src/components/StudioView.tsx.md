@@ -36,6 +36,8 @@ export function StudioView({ studioId, onBack, onFolderClick, onBoardClick }: St
   const [showCreateFolder, setShowCreateFolder] = useState(false);
   const [menuTarget, setMenuTarget] = useState<MenuTarget | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<MenuTarget | null>(null);
+  const [renameBoardId, setRenameBoardId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
 
   useEffect(() => {
     api.listStudios().then((list) => {
@@ -60,6 +62,18 @@ export function StudioView({ studioId, onBack, onFolderClick, onBoardClick }: St
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [menuTarget]);
+
+  const doRename = async (id: string) => {
+    const trimmed = renameValue.trim();
+    if (!trimmed) { setRenameBoardId(null); return; }
+    try {
+      await api.renameBoard(id, trimmed);
+      setBoards((prev) => prev ? prev.map((b) => b.id === id ? { ...b, name: trimmed } : b) : prev);
+    } catch (e) {
+      console.error("Error al renombrar board", e);
+    }
+    setRenameBoardId(null);
+  };
 
   const handleFolderCreated = (folder: Folder) => {
     setFolders((prev) => prev ? [...prev, folder] : [folder]);
@@ -103,7 +117,7 @@ export function StudioView({ studioId, onBack, onFolderClick, onBoardClick }: St
 
   if (!studio || folders === null || boards === null) {
     return (
-      <div className="w-full h-screen flex items-center justify-center" style={{ background: "var(--bg)" }}>
+      <div className="w-full app-dvh app-safe-page flex items-center justify-center" style={{ background: "var(--bg)" }}>
         <Loader2 className="animate-spin" size={32} style={{ color: "var(--sub)" }} />
       </div>
     );
@@ -116,8 +130,8 @@ export function StudioView({ studioId, onBack, onFolderClick, onBoardClick }: St
     + " relative";
 
   return (
-    <div className="w-full min-h-screen" style={{ background: "var(--bg)" }}>
-      <div className="max-w-5xl mx-auto px-6 py-8">
+    <div className="w-full app-dvh" style={{ background: "var(--bg)" }}>
+      <div className="max-w-5xl mx-auto px-6 py-8 app-safe-page">
         {/* Header */}
         <div className="flex items-center gap-4 mb-8">
           <button
@@ -163,7 +177,20 @@ export function StudioView({ studioId, onBack, onFolderClick, onBoardClick }: St
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2 min-w-0">
                       <FileText size={14} style={{ color: "var(--sub)" }} className="shrink-0" />
-                      <span style={{ color: "var(--text)", opacity: 0.85 }} className="text-sm font-medium truncate">{b.name}</span>
+                      {renameBoardId === b.id ? (
+                        <input
+                          autoFocus
+                          value={renameValue}
+                          onChange={(e) => setRenameValue(e.target.value)}
+                          onBlur={() => doRename(b.id)}
+                          onKeyDown={(e) => { if (e.key === "Enter") doRename(b.id); if (e.key === "Escape") setRenameBoardId(null); }}
+                          onClick={(e) => e.stopPropagation()}
+                          className="text-sm font-medium bg-transparent outline-none border-b min-w-0"
+                          style={{ color: "var(--text)", borderColor: "var(--dashed-border)" }}
+                        />
+                      ) : (
+                        <span style={{ color: "var(--text)", opacity: 0.85 }} className="text-sm font-medium truncate">{b.name}</span>
+                      )}
                     </div>
                     {/* Three-dot menu */}
                     <div data-menu-root="true" style={{ position: "relative" }} className="shrink-0">
@@ -184,6 +211,13 @@ export function StudioView({ studioId, onBack, onFolderClick, onBoardClick }: St
                           }}
                           onClick={(e) => e.stopPropagation()}
                         >
+                          <button
+                            className="flex items-center gap-1.5 w-full px-3 py-2 hover:opacity-80"
+                            style={{ color: "var(--text)" }}
+                            onClick={() => { setRenameValue(b.name); setRenameBoardId(b.id); setMenuTarget(null); }}
+                          >
+                            <FileText size={13} /> Renombrar
+                          </button>
                           <button
                             className="flex items-center gap-1.5 w-full px-3 py-2 hover:opacity-80"
                             style={{ color: "#F87171" }}

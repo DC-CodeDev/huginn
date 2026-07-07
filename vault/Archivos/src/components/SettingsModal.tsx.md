@@ -29,7 +29,7 @@ export function SettingsModal({
 
   return (
     <div
-      className="absolute inset-0 z-50 flex items-center justify-center"
+      className="absolute inset-0 z-50 flex items-center justify-center app-modal-backdrop"
       style={{ background: "rgba(0,0,0,.45)" }}
       onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >

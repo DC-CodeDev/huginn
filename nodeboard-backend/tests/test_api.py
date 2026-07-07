@@ -45,7 +45,7 @@ def test_catch_all_source_ordering():
 
     # Recorrer líneas buscando @app.get/post/put/patch/delete("...")
     # y recolectar el path de cada ruta en orden de aparición.
-    route_pattern = re.compile(r'@app\.(?:get|post|put|patch|delete)\("([^"]+)"')
+    route_pattern = re.compile(r'@app\.(?:get|post|put|patch|delete|api_route)\("([^"]+)"')
 
     found_routes: list[tuple[int, str]] = []
     for lineno, line in enumerate(lines, start=1):

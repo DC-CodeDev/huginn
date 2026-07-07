@@ -14,7 +14,7 @@ interface AppBarProps {
 export function AppBar({ T, theme, onToggleTheme, onSettingsClick, onProfileClick }: AppBarProps) {
   return (
     <div
-      className="fixed top-4 right-4 z-30 flex items-center gap-1 rounded-2xl px-2 py-1.5"
+      className="fixed app-safe-top-right z-30 flex items-center gap-1 rounded-2xl px-2 py-1.5"
       style={{ background: T.card, border: `1px solid ${T.cardBorder}`, boxShadow: "0 14px 34px -14px rgba(0,0,0,.6)" }}
     >
       <ToolBtn T={T} label={theme === "dark" ? "Tema claro" : "Tema oscuro"} onClick={onToggleTheme}>

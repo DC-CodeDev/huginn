@@ -37,7 +37,7 @@ export function CreateStudioModal({ onClose, onCreated }: CreateStudioModalProps
   return (
     <div
       data-testid="create-studio-modal"
-      className="fixed inset-0 z-50 flex items-center justify-center"
+      className="fixed inset-0 z-50 flex items-center justify-center app-modal-backdrop"
       style={{ background: "rgba(0,0,0,0.6)" }}
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >

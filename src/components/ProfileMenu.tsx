@@ -23,9 +23,9 @@ export function ProfileMenu({ T, theme, user, onLogout, onCloseProfile, onClose 
       <div
         className="absolute z-50 rounded-xl py-1.5 min-w-[180px]"
         style={{
-          top: 56,
+          top: "calc(56px + var(--safe-top))",
           left: "auto",
-          right: 16,
+          right: "calc(16px + var(--safe-right))",
           background: T.card,
           border: `1px solid ${T.cardBorder}`,
           boxShadow: theme === "dark"

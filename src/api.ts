@@ -2,6 +2,12 @@ import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 
 import type { BoardSummary, Folder, Node, Edge, Studio, StudioBoards } from "./types";
 
 export type SaveStatus = "cargando" | "guardando" | "guardado" | "error";
+export type AuthUser = {
+  id: string;
+  email: string;
+  name: string;
+  avatar_url: string;
+};
 
 type Board = { id: string; name: string; nodes: Node[]; edges: Edge[] };
 
@@ -16,11 +22,24 @@ export function registerUnauthorizedHandler(fn: (() => void) | null) {
   _unauthorizedHandler = fn;
 }
 
-async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const response = await fetch(`${BASE}${path}`, {
-    headers: { "Content-Type": "application/json", ...options.headers },
+export function buildApiUrl(path: string): string {
+  return `${BASE}${path}`;
+}
+
+export function apiFetch(path: string, options: RequestInit = {}): Promise<Response> {
+  const defaultHeaders = new Headers(options.body === undefined ? undefined : { "Content-Type": "application/json" });
+  if (options.headers) {
+    new Headers(options.headers).forEach((value, key) => defaultHeaders.set(key, value));
+  }
+  return fetch(buildApiUrl(path), {
+    credentials: "include",
     ...options,
+    headers: defaultHeaders,
   });
+}
+
+async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const response = await apiFetch(path, options);
   if (!response.ok) {
     if (response.status === 401 && _unauthorizedHandler) {
       _unauthorizedHandler();
@@ -28,6 +47,29 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     throw new Error(`${response.status} ${await response.text()}`);
   }
   return (response.status === 204 ? null : await response.json()) as T;
+}
+
+export async function fetchCurrentUser(): Promise<AuthUser> {
+  const response = await apiFetch("/api/auth/me");
+  if (!response.ok) {
+    throw new Error("No autenticado");
+  }
+  return response.json() as Promise<AuthUser>;
+}
+
+export async function loginWithGoogleCode(code: string): Promise<AuthUser> {
+  const response = await apiFetch("/api/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ code }),
+  });
+  if (!response.ok) {
+    throw new Error("Error al iniciar sesión");
+  }
+  return response.json() as Promise<AuthUser>;
+}
+
+export async function logoutSession(): Promise<void> {
+  await apiFetch("/api/auth/logout", { method: "POST" });
 }
 
 export const api = {
