@@ -477,8 +477,8 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
           data-testid="board-title"
           value={boardName}
           onChange={(e) => setBoardName(e.target.value)}
-          className="bg-transparent text-sm font-medium outline-none min-w-[120px] max-w-[240px]"
-          style={{ color: T.text }}
+          className="bg-transparent text-sm font-medium outline-none"
+          style={{ color: T.text, width: `${Math.max(boardName.length + 2, 10)}ch` }}
           placeholder="Nombre del board"
           onMouseDown={(e) => e.stopPropagation()}
         />
