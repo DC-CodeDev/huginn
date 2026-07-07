@@ -25,6 +25,18 @@ Documentación arquitectural del canvas de nodos **Huginn**: frontend Vite + Rea
 - ✅ **Frontend**: Home con grilla de Studios y modal de creación, StudioView con recientes y carpetas, FolderView con boards de carpeta, navegación jerárquica completa, botón atrás desde canvas respeta la jerarquía real.
 - ✅ **Tests**: 6 tests e2e de navegación nuevos + 12 tests backend de Studios/Folders. Suite completa: 29 backend + 7 vitest + 18 e2e = 54 tests en verde.
 
+**Etapa 3 — Migración a Railway:**
+- ✅ **CORS por env**: `CORS_ORIGINS` variable de entorno (separado por comas) con fallback a localhost para desarrollo local. [[RESUMEN_ETAPA3.md]]
+- ✅ **Frontend estático desde FastAPI**: montaje condicional de `StaticFiles` en `/assets` + catch-all `/{full_path:path}` que sirve `index.html` para SPA, registrado **después** de todos los endpoints `/api/*` (orden crítico documentado en comentario). [[RESUMEN_ETAPA3.md]]
+- ✅ **Entrypoint script** (`nodeboard-backend/entrypoint.sh`): corre `alembic upgrade head` y arranca uvicorn con `exec` leyendo `$PORT` (fallback 8001).
+- ✅ **Dockerfile multi-stage** (raíz del proyecto): builder node:22-alpine → `npm ci && npm run build`; final python:3.12-slim → pip install + copia build a `app/static/` + `mkdir -p /app/data` + build args `BUILD_COMMIT`/`BUILD_TIMESTAMP`. [[RESUMEN_ETAPA3.md]]
+- ✅ **Logout automático por 401**: `registerUnauthorizedHandler` en `api.ts` + registro de `logout` en `AuthProvider`. Cuando cualquier llamada HTTP recibe 401, `request()` dispara el handler antes del throw — `setUser(null)` → gate global en `AppInner` → muestra Login, sin recargar la página. [[RESUMEN_LOGOUT_AUTO.md]]
+- ✅ **Tests de orden de rutas**: `test_catch_all_source_ordering` (parsea `main.py` y verifica que el catch-all sea el último decorador) + `test_catch_all_ordering_at_runtime` (recorre `app.routes` si el build de frontend existe). Suite: 35 backend (34 pass + 1 xfail), 18 vitest.
+- ✅ **Documentación de ruteo**: [[PATHS_ETAPA3.md]] — inventario completo de los 25 endpoints HTTP. [[RESUMEN_ROUTING_ETAPA3.md]] — análisis de CORS, routers, StaticFiles, puerto y estructura. [[RESUMEN_ETAPA3.md]] — resumen de cambios. [[RESUMEN_LOGOUT_AUTO.md]] — patrón del callback de 401.
+
+**Preparación Etapa 2 — Alembic:**
+- ✅ **Alembic instalado e inicializado**: migraciones versionadas reemplazan `Base.metadata.create_all()`. Baseline generada con autogenerate, diff vacío verificado. Ejecución automática vía `alembic upgrade head` en el lifespan de FastAPI. Documentado en [[Archivos/nodeboard-backend/migrations/env.py.md]], [[Archivos/nodeboard-backend/alembic.ini.md]], y [[Archivos/nodeboard-backend/migrations/versions/e10b08b208d0_initial_schema.py.md]].
+
 ---
 
 ## Archivos por área
@@ -76,8 +88,15 @@ Documentación arquitectural del canvas de nodos **Huginn**: frontend Vite + Rea
 ### `nodeboard-backend/` — Tests y deps del backend
 - [[Archivos/nodeboard-backend/tests/test_api.py.md]] — pytest: salud, rutas y contrato de `BoardStateSave`
 - [[Archivos/nodeboard-backend/tests/test_tags_label.py.md]] — pytest e2e: propagación de `tags` (Node) y `label` (Edge)
-- [[Archivos/nodeboard-backend/requirements.txt.md]] — fastapi, uvicorn, sqlalchemy, pydantic, pytest, httpx
+- [[Archivos/nodeboard-backend/requirements.txt.md]] — fastapi, uvicorn, sqlalchemy, pydantic, pytest, httpx, alembic
 - [[Archivos/nodeboard-backend/pytest.ini.md]] — config pytest: fija rootdir y `pythonpath` para resolver `app` desde cualquier cwd
+- [[Archivos/nodeboard-backend/alembic.ini.md]] — config de Alembic (URL vía `NODEBOARD_DB`)
+- [[Archivos/nodeboard-backend/migrations/env.py.md]] — entorno Alembic: apunta a `Base.metadata` y lee `NODEBOARD_DB`
+- [[Archivos/nodeboard-backend/migrations/versions/e10b08b208d0_initial_schema.py.md]] — baseline del esquema (creación de las 5 tablas)
+
+### Raíz — Deploy
+- `Dockerfile` — multi-stage: builder Node 22 + runtime Python 3.12-slim. Build args `BUILD_COMMIT`, `BUILD_TIMESTAMP`.
+- `nodeboard-backend/entrypoint.sh` — `alembic upgrade head` + `exec uvicorn` en `$PORT`.
 
 ### `e2e/` — Tests end-to-end (Playwright)
 - [[Archivos/e2e/helpers.ts.md]] — helpers: `connectPorts`, `waitForBoardLoaded`, `openTagsModal`, `dragNodeBy`, `createCardNodeAndGetId`, **`setupStudioAndBoard`**, **`setupStudioFolderAndBoard`**
@@ -104,6 +123,42 @@ Documentación arquitectural del canvas de nodos **Huginn**: frontend Vite + Rea
 
 ---
 
-## Mantenimiento
+## Deuda técnica
+
+### CI/CD — GitHub Actions (pendiente)
+
+El proyecto no tiene integración continua. No existe `.github/workflows/` ni ningún archivo de CI. Esto implica:
+
+- **Sin verificación automática en PRs**: los tests (35 backend + 18 vitest + 18 e2e) y el typecheck (`tsc --noEmit`) solo se ejecutan localmente. No hay guardas para evitar merges con tests rotos.
+- **Sin linting automatizado**: no hay jobs de ESLint, Prettier, ni validación de formato.
+- **Sin build check**: nadie confirma que `npm run build` compile exitosamente hasta el deploy.
+- **Sin Docker build test**: el `Dockerfile` multi-stage no se valida en ningún lado hasta el deploy a Railway.
+- **Sin caché de dependencias**: cada build en Railway parte de cero sin capas cacheadas de `pip install` ni `npm ci`, alargando los deploys.
+
+**Mínimo recomendado para un pipeline inicial:**
+
+| Job | Trigger | Comandos | Tiempo estimado |
+|-----|---------|----------|----------------|
+| `lint-typecheck` | push a PR, push a main | `tsc --noEmit` | ~30s |
+| `test-backend` | push a PR, push a main | `pytest nodeboard-backend/tests` | ~10s |
+| `test-frontend` | push a PR, push a main | `vitest run` | ~5s |
+| `build` | push a main (post-merge) | `npm run build` + validar Dockerfile build | ~2m |
+| `deploy` | push a main (post-build) | Deploy automático a Railway via Railway CLI o GitHub integration | ~3m |
+
+La dependencia de Railway para el deploy es el habilitador principal: una vez que Railway está conectado al repo, el job `build` puede producir la imagen y `deploy` solo necesita triggerear un nuevo deployment.
+
+> **Decisión técnica**: el pipeline más valioso para arrancar es `test-backend + test-frontend + lint-typecheck` en PRs. El deploy automatizado suma valor pero no es bloqueante — Railway permite deploy manual desde su dashboard mientras tanto.
 
 > Regla de trabajo: cada vez que se crea o modifica un archivo del proyecto, se debe actualizar (o crear) su nota correspondiente en `vault/Archivos/...`, incluyendo sus secciones de Exporta/Importa y las referencias cruzadas afectadas ("Importado por" en los archivos relacionados), antes de cerrar la tarea. El vault solo se actualiza ante orden explícita.
+
+---
+
+## Documentos de sesión (RESUMEN)
+
+Estos documentos se generan por sesión de trabajo y no se mantienen en sincronía
+con el código fuente — son instantáneas para revisión externa.
+
+- [[RESUMEN_ROUTING_ETAPA3.md]] — inventario de ruteo antes de la Etapa 3 (CORS, routers, StaticFiles, puerto, estructura)
+- [[PATHS_ETAPA3.md]] — lista completa de los 25 paths HTTP en main.py
+- [[RESUMEN_ETAPA3.md]] — cambios realizados en la Etapa 3 (CORS por env, StaticFiles, catch-all, entrypoint.sh, Dockerfile)
+- [[RESUMEN_LOGOUT_AUTO.md]] — logout automático por sesión expirada vía callback de 401

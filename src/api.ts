@@ -7,12 +7,26 @@ type Board = { id: string; name: string; nodes: Node[]; edges: Edge[] };
 
 const BASE = import.meta.env.VITE_API_URL ?? "";
 
+// ----------------------------------------------------------------------
+//  Callback global para 401 — registrado por AuthProvider al montar
+// ----------------------------------------------------------------------
+let _unauthorizedHandler: (() => void) | null = null;
+
+export function registerUnauthorizedHandler(fn: (() => void) | null) {
+  _unauthorizedHandler = fn;
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const response = await fetch(`${BASE}${path}`, {
     headers: { "Content-Type": "application/json", ...options.headers },
     ...options,
   });
-  if (!response.ok) throw new Error(`${response.status} ${await response.text()}`);
+  if (!response.ok) {
+    if (response.status === 401 && _unauthorizedHandler) {
+      _unauthorizedHandler();
+    }
+    throw new Error(`${response.status} ${await response.text()}`);
+  }
   return (response.status === 204 ? null : await response.json()) as T;
 }
 

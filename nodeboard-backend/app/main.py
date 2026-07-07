@@ -1,37 +1,66 @@
 """API REST del nodeboard.
 
-Endpoints:
-  GET    /api/boards                   -> lista de tableros (resumen)
-  POST   /api/boards                   -> crear tablero
-  GET    /api/boards/{board_id}        -> estado completo (nodes + edges)
-  GET    /api/boards/{board_id}/tags   -> tags únicos usados por los nodos del tablero
-  PATCH  /api/boards/{board_id}        -> renombrar tablero
-  PUT    /api/boards/{board_id}/state  -> guardar TODO el estado (autosave)
-  DELETE /api/boards/{board_id}        -> eliminar tablero
+Endpoints de autenticación:
+  POST   /api/auth/login                    -> login con Google OAuth
+  POST   /api/auth/logout                   -> cerrar sesión
+  GET    /api/auth/me                       -> usuario actual
 
-  POST   /api/boards/{board_id}/nodes  -> crear nodo
-  PATCH  /api/nodes/{node_id}          -> actualizar nodo (parcial)
-  DELETE /api/nodes/{node_id}          -> eliminar nodo (+ sus aristas)
+Endpoints de negocio (requieren autenticación):
+  GET    /api/studios                       -> lista de studios del usuario
+  POST   /api/studios                       -> crear studio
+  DELETE /api/studios/{studio_id}           -> eliminar studio
 
-  POST   /api/boards/{board_id}/edges  -> crear arista
-  PATCH  /api/edges/{edge_id}          -> actualizar arista (curved)
-  DELETE /api/edges/{edge_id}          -> eliminar arista
+  POST   /api/folders                       -> crear carpeta
+  GET    /api/studios/{studio_id}/folders   -> carpetas de un studio
+  DELETE /api/folders/{folder_id}           -> eliminar carpeta
+
+  GET    /api/boards                        -> lista de tableros del usuario
+  POST   /api/boards                        -> crear tablero
+  GET    /api/studios/{studio_id}/boards    -> tableros de un studio
+  GET    /api/folders/{folder_id}/boards    -> tableros de una carpeta
+  GET    /api/boards/{board_id}             -> estado completo (nodes + edges)
+  GET    /api/boards/{board_id}/tags        -> tags únicos del tablero
+  PATCH  /api/boards/{board_id}             -> renombrar tablero
+  PUT    /api/boards/{board_id}/state       -> guardar TODO el estado (autosave)
+  DELETE /api/boards/{board_id}             -> eliminar tablero
+
+  POST   /api/boards/{board_id}/nodes       -> crear nodo
+  PATCH  /api/nodes/{node_id}               -> actualizar nodo (parcial)
+  DELETE /api/nodes/{node_id}               -> eliminar nodo (+ sus aristas)
+
+  POST   /api/boards/{board_id}/edges       -> crear arista
+  PATCH  /api/edges/{edge_id}               -> actualizar arista
+  DELETE /api/edges/{edge_id}               -> eliminar arista
+
+  GET    /api/health                        -> health check (sin auth)
 
 Ejecución:
-  uvicorn app.main:app --reload --port 8000
+  uvicorn app.main:app --reload --port 8001
 """
+import os
 import uuid
 
 from contextlib import asynccontextmanager
+from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException
+from alembic.config import Config
+from alembic import command
+from dotenv import load_dotenv
+from fastapi import Cookie, Depends, FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import event, func, or_, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
-from . import models, schemas
-from .database import Base, engine, get_db
+# Cargar variables de entorno desde .env antes de cualquier otra cosa
+_env_path = Path(__file__).resolve().parent.parent / ".env"
+if _env_path.exists():
+    load_dotenv(_env_path)
+
+from . import auth, models, schemas
+from .database import engine as db_engine, get_db
 
 # SQLite no aplica ON DELETE CASCADE si no se activan las foreign keys
 @event.listens_for(Engine, "connect")
@@ -42,46 +71,150 @@ def _enable_sqlite_fk(dbapi_conn, _):
         pass
 
 
+_ALEMBIC_CFG = os.path.join(os.path.dirname(__file__), "..", "alembic.ini")
+
+_COOKIE_SESSION = "session"
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    Base.metadata.create_all(bind=engine)
+    cfg = Config(_ALEMBIC_CFG)
+    command.upgrade(cfg, "head")
     yield
 
 
 app = FastAPI(title="Nodeboard API", version="1.0.0", lifespan=lifespan)
 
+# CORS: leer orígenes desde variable de entorno (separados por coma),
+# con fallback a localhost para desarrollo local
+_cors_origins = os.getenv(
+    "CORS_ORIGINS",
+    "http://localhost:5174,http://127.0.0.1:5174,http://localhost:3000",
+)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5174", "http://127.0.0.1:5174", "http://localhost:3000"],
+    allow_origins=[o.strip() for o in _cors_origins.split(",") if o.strip()],
     allow_methods=["*"],
     allow_headers=["*"],
+    allow_credentials=True,
 )
 
 
+# ------------------------------------------------------------------ auth deps
+
+
+def get_current_user(
+    db: Session = Depends(get_db),
+    session_id: str = Cookie(default=None, alias=_COOKIE_SESSION),
+) -> models.User:
+    """FastAPI Depends: resuelve el usuario autenticado desde la cookie de sesión.
+
+    Si la cookie no existe, la sesión no existe, o expiró → 401.
+    """
+    if not session_id:
+        raise HTTPException(401, "No autenticado")
+    session = db.get(models.Session, session_id)
+    if not session:
+        raise HTTPException(401, "Sesión inválida")
+    from datetime import datetime, timezone
+    if session.expires_at < datetime.now(timezone.utc).replace(tzinfo=None):
+        # expires_at es naive UTC (convención del proyecto)
+        db.delete(session)
+        db.commit()
+        raise HTTPException(401, "Sesión expirada")
+    user = db.get(models.User, session.user_id)
+    if not user:
+        raise HTTPException(401, "Usuario no encontrado")
+    return user
+
+
 # ------------------------------------------------------------------ helpers
+
+
 def _uid() -> str:
     return uuid.uuid4().hex
 
 
-def _get_board(db: Session, board_id: str) -> models.Board:
-    board = db.get(models.Board, board_id)
+def _get_board(db: Session, board_id: str, user: models.User) -> models.Board:
+    """Busca un Board asegurando que pertenece al usuario via Studio.user_id."""
+    board = (
+        db.execute(
+            select(models.Board)
+            .join(models.Studio, models.Board.studio_id == models.Studio.id)
+            .where(models.Board.id == board_id, models.Studio.user_id == user.id)
+        )
+        .scalars()
+        .first()
+    )
     if not board:
         raise HTTPException(404, "Tablero no encontrado")
     return board
 
 
-def _get_studio(db: Session, studio_id: str) -> models.Studio:
-    studio = db.get(models.Studio, studio_id)
+def _get_studio(db: Session, studio_id: str, user: models.User) -> models.Studio:
+    """Busca un Studio asegurando que pertenece al usuario."""
+    studio = (
+        db.execute(
+            select(models.Studio).where(
+                models.Studio.id == studio_id, models.Studio.user_id == user.id
+            )
+        )
+        .scalars()
+        .first()
+    )
     if not studio:
         raise HTTPException(404, "Studio no encontrado")
     return studio
 
 
-def _get_folder(db: Session, folder_id: str) -> models.Folder:
-    folder = db.get(models.Folder, folder_id)
+def _get_folder(db: Session, folder_id: str, user: models.User) -> models.Folder:
+    """Busca un Folder asegurando que pertenece al usuario via Studio.user_id."""
+    folder = (
+        db.execute(
+            select(models.Folder)
+            .join(models.Studio, models.Folder.studio_id == models.Studio.id)
+            .where(models.Folder.id == folder_id, models.Studio.user_id == user.id)
+        )
+        .scalars()
+        .first()
+    )
     if not folder:
         raise HTTPException(404, "Carpeta no encontrada")
     return folder
+
+
+def _get_owned_node(db: Session, node_id: str, user: models.User) -> models.Node:
+    """Busca un Node asegurando que pertenece al usuario via cadena de FKs."""
+    node = (
+        db.execute(
+            select(models.Node)
+            .join(models.Board, models.Node.board_id == models.Board.id)
+            .join(models.Studio, models.Board.studio_id == models.Studio.id)
+            .where(models.Node.id == node_id, models.Studio.user_id == user.id)
+        )
+        .scalars()
+        .first()
+    )
+    if not node:
+        raise HTTPException(404, "Nodo no encontrado")
+    return node
+
+
+def _get_owned_edge(db: Session, edge_id: str, user: models.User) -> models.Edge:
+    """Busca un Edge asegurando que pertenece al usuario via cadena de FKs."""
+    edge = (
+        db.execute(
+            select(models.Edge)
+            .join(models.Board, models.Edge.board_id == models.Board.id)
+            .join(models.Studio, models.Board.studio_id == models.Studio.id)
+            .where(models.Edge.id == edge_id, models.Studio.user_id == user.id)
+        )
+        .scalars()
+        .first()
+    )
+    if not edge:
+        raise HTTPException(404, "Arista no encontrada")
+    return edge
 
 
 def _node_to_schema(n: models.Node) -> schemas.NodeSchema:
@@ -108,10 +241,81 @@ def _board_state(board: models.Board) -> schemas.BoardState:
     )
 
 
+# ------------------------------------------------------------------ auth endpoints
+
+
+@app.post("/api/auth/login")
+def login(payload: schemas.LoginRequest, response: Response, db: Session = Depends(get_db)):
+    """Intercambia un code de Google por una sesión (cookie httpOnly, 7 días)."""
+    identity = auth.verify_google_token(payload.code)
+
+    # Buscar o crear usuario
+    user = db.scalar(
+        select(models.User).where(
+            models.User.email == identity.email,
+            models.User.auth_provider == "google",
+        )
+    )
+    if not user:
+        user = models.User(
+            email=identity.email,
+            name=identity.name,
+            avatar_url=identity.avatar_url,
+            auth_provider="google",
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+    else:
+        # Actualizar datos que pueden cambiar en Google
+        user.name = identity.name
+        user.avatar_url = identity.avatar_url
+        db.commit()
+
+    session = auth.create_session(db, user)
+
+    response.set_cookie(
+        key=_COOKIE_SESSION,
+        value=session.id,
+        httponly=True,
+        samesite="lax",
+        max_age=7 * 24 * 3600,
+    )
+    return schemas.UserOut.model_validate(user)
+
+
+@app.post("/api/auth/logout")
+def logout(
+    response: Response,
+    db: Session = Depends(get_db),
+    session_id: str = Cookie(default=None, alias=_COOKIE_SESSION),
+):
+    """Elimina la sesión actual y limpia la cookie."""
+    if session_id:
+        session = db.get(models.Session, session_id)
+        if session:
+            db.delete(session)
+            db.commit()
+    response.delete_cookie(key=_COOKIE_SESSION)
+
+
+@app.get("/api/auth/me", response_model=schemas.UserOut)
+def me(current_user: models.User = Depends(get_current_user)):
+    return current_user
+
+
 # ------------------------------------------------------------------ studios
+
+
 @app.post("/api/studios", response_model=schemas.StudioOut, status_code=201)
-def create_studio(payload: schemas.StudioCreate, db: Session = Depends(get_db)):
-    studio = models.Studio(id=_uid(), name=payload.name, color=payload.color)
+def create_studio(
+    payload: schemas.StudioCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    studio = models.Studio(
+        id=_uid(), name=payload.name, color=payload.color, user_id=current_user.id
+    )
     db.add(studio)
     db.commit()
     db.refresh(studio)
@@ -119,20 +323,39 @@ def create_studio(payload: schemas.StudioCreate, db: Session = Depends(get_db)):
 
 
 @app.get("/api/studios", response_model=list[schemas.StudioOut])
-def list_studios(db: Session = Depends(get_db)):
-    return list(db.scalars(select(models.Studio).order_by(models.Studio.name)).all())
+def list_studios(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    return list(
+        db.scalars(
+            select(models.Studio)
+            .where(models.Studio.user_id == current_user.id)
+            .order_by(models.Studio.name)
+        ).all()
+    )
 
 
 @app.delete("/api/studios/{studio_id}", status_code=204)
-def delete_studio(studio_id: str, db: Session = Depends(get_db)):
-    db.delete(_get_studio(db, studio_id))
+def delete_studio(
+    studio_id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    db.delete(_get_studio(db, studio_id, current_user))
     db.commit()
 
 
 # ------------------------------------------------------------------ folders
+
+
 @app.post("/api/folders", response_model=schemas.FolderOut, status_code=201)
-def create_folder(payload: schemas.FolderCreate, db: Session = Depends(get_db)):
-    _get_studio(db, payload.studio_id)
+def create_folder(
+    payload: schemas.FolderCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    _get_studio(db, payload.studio_id, current_user)
     folder = models.Folder(id=_uid(), name=payload.name, studio_id=payload.studio_id)
     db.add(folder)
     db.commit()
@@ -141,8 +364,12 @@ def create_folder(payload: schemas.FolderCreate, db: Session = Depends(get_db)):
 
 
 @app.get("/api/studios/{studio_id}/folders", response_model=list[schemas.FolderOut])
-def list_folders(studio_id: str, db: Session = Depends(get_db)):
-    _get_studio(db, studio_id)
+def list_folders(
+    studio_id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    _get_studio(db, studio_id, current_user)
     return list(
         db.scalars(
             select(models.Folder)
@@ -153,15 +380,29 @@ def list_folders(studio_id: str, db: Session = Depends(get_db)):
 
 
 @app.delete("/api/folders/{folder_id}", status_code=204)
-def delete_folder(folder_id: str, db: Session = Depends(get_db)):
-    db.delete(_get_folder(db, folder_id))
+def delete_folder(
+    folder_id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    db.delete(_get_folder(db, folder_id, current_user))
     db.commit()
 
 
 # ------------------------------------------------------------------ boards
+
+
 @app.get("/api/boards", response_model=list[schemas.BoardSummary])
-def list_boards(db: Session = Depends(get_db)):
-    boards = db.scalars(select(models.Board).order_by(models.Board.updated_at.desc())).all()
+def list_boards(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    boards = db.scalars(
+        select(models.Board)
+        .join(models.Studio, models.Board.studio_id == models.Studio.id)
+        .where(models.Studio.user_id == current_user.id)
+        .order_by(models.Board.updated_at.desc())
+    ).all()
     out = []
     for b in boards:
         s = schemas.BoardSummary.model_validate(b)
@@ -176,10 +417,14 @@ def list_boards(db: Session = Depends(get_db)):
 
 
 @app.post("/api/boards", response_model=schemas.BoardState, status_code=201)
-def create_board(payload: schemas.BoardCreate, db: Session = Depends(get_db)):
-    _get_studio(db, payload.studio_id)
+def create_board(
+    payload: schemas.BoardCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    _get_studio(db, payload.studio_id, current_user)
     if payload.folder_id:
-        folder = _get_folder(db, payload.folder_id)
+        folder = _get_folder(db, payload.folder_id, current_user)
         if folder.studio_id != payload.studio_id:
             raise HTTPException(
                 422,
@@ -198,8 +443,12 @@ def create_board(payload: schemas.BoardCreate, db: Session = Depends(get_db)):
 
 
 @app.get("/api/studios/{studio_id}/boards", response_model=schemas.StudioBoardsOut)
-def list_studio_boards(studio_id: str, db: Session = Depends(get_db)):
-    _get_studio(db, studio_id)
+def list_studio_boards(
+    studio_id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    _get_studio(db, studio_id, current_user)
     all_boards = db.scalars(
         select(models.Board)
         .where(models.Board.studio_id == studio_id)
@@ -224,8 +473,12 @@ def list_studio_boards(studio_id: str, db: Session = Depends(get_db)):
 
 
 @app.get("/api/folders/{folder_id}/boards", response_model=list[schemas.BoardSummary])
-def list_folder_boards(folder_id: str, db: Session = Depends(get_db)):
-    _get_folder(db, folder_id)
+def list_folder_boards(
+    folder_id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    _get_folder(db, folder_id, current_user)
     boards = db.scalars(
         select(models.Board)
         .where(models.Board.folder_id == folder_id)
@@ -245,18 +498,22 @@ def list_folder_boards(folder_id: str, db: Session = Depends(get_db)):
 
 
 @app.get("/api/boards/{board_id}", response_model=schemas.BoardState)
-def get_board(board_id: str, db: Session = Depends(get_db)):
-    return _board_state(_get_board(db, board_id))
+def get_board(
+    board_id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    return _board_state(_get_board(db, board_id, current_user))
 
 
 @app.get("/api/boards/{board_id}/tags", response_model=list[str])
-def board_tags(board_id: str, db: Session = Depends(get_db)):
-    """Tags únicos usados por los nodos del tablero, para autocompletar en el editor.
-
-    Agrega el campo `tags` de cada nodo (no las tags por-etapa del timeline, que son
-    otro concepto). Deduplica exacto y ordena case-insensitive para una lista estable.
-    """
-    board = _get_board(db, board_id)
+def board_tags(
+    board_id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Tags únicos usados por los nodos del tablero, para autocompletar en el editor."""
+    board = _get_board(db, board_id, current_user)
     unique: dict[str, None] = {}
     for node in board.nodes:
         for tag in node.tags or []:
@@ -266,8 +523,13 @@ def board_tags(board_id: str, db: Session = Depends(get_db)):
 
 
 @app.patch("/api/boards/{board_id}", response_model=schemas.BoardState)
-def rename_board(board_id: str, payload: schemas.BoardRename, db: Session = Depends(get_db)):
-    board = _get_board(db, board_id)
+def rename_board(
+    board_id: str,
+    payload: schemas.BoardRename,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    board = _get_board(db, board_id, current_user)
     board.name = payload.name
     db.commit()
     db.refresh(board)
@@ -275,19 +537,28 @@ def rename_board(board_id: str, payload: schemas.BoardRename, db: Session = Depe
 
 
 @app.delete("/api/boards/{board_id}", status_code=204)
-def delete_board(board_id: str, db: Session = Depends(get_db)):
-    db.delete(_get_board(db, board_id))
+def delete_board(
+    board_id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    db.delete(_get_board(db, board_id, current_user))
     db.commit()
 
 
 @app.put("/api/boards/{board_id}/state", response_model=schemas.BoardState)
-def save_board_state(board_id: str, payload: schemas.BoardStateSave, db: Session = Depends(get_db)):
+def save_board_state(
+    board_id: str,
+    payload: schemas.BoardStateSave,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
     """Reemplaza nodos y aristas del tablero con el estado enviado.
 
     Pensado para el autosave del canvas: el frontend manda todo el estado
     (con debounce) y la API lo persiste de forma atómica.
     """
-    board = _get_board(db, board_id)
+    board = _get_board(db, board_id, current_user)
     if payload.name is not None:
         board.name = payload.name
 
@@ -299,8 +570,6 @@ def save_board_state(board_id: str, payload: schemas.BoardStateSave, db: Session
     db.flush()
 
     for n in payload.nodes:
-        # ports/blocks/stages son modelos Pydantic; las columnas JSON necesitan
-        # estructuras planas. model_dump() los aplana recursivamente a dict/list.
         dumped = n.model_dump()
         db.add(models.Node(
             id=n.id or _uid(),
@@ -325,11 +594,16 @@ def save_board_state(board_id: str, payload: schemas.BoardStateSave, db: Session
 
 
 # ------------------------------------------------------------------ nodos
+
+
 @app.post("/api/boards/{board_id}/nodes", response_model=schemas.NodeSchema, status_code=201)
-def create_node(board_id: str, payload: schemas.NodeSchema, db: Session = Depends(get_db)):
-    board = _get_board(db, board_id)
-    # ports/blocks/stages son modelos Pydantic; las columnas JSON necesitan
-    # estructuras planas. model_dump() los aplana recursivamente a dict/list.
+def create_node(
+    board_id: str,
+    payload: schemas.NodeSchema,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    board = _get_board(db, board_id, current_user)
     dumped = payload.model_dump()
     node = models.Node(
         id=payload.id or _uid(),
@@ -346,14 +620,14 @@ def create_node(board_id: str, payload: schemas.NodeSchema, db: Session = Depend
 
 
 @app.patch("/api/nodes/{node_id}", response_model=schemas.NodeSchema)
-def update_node(node_id: str, payload: schemas.NodeUpdate, db: Session = Depends(get_db)):
-    node = db.get(models.Node, node_id)
-    if not node:
-        raise HTTPException(404, "Nodo no encontrado")
+def update_node(
+    node_id: str,
+    payload: schemas.NodeUpdate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    node = _get_owned_node(db, node_id, current_user)
     data = payload.model_dump(exclude_unset=True)
-    # `tags` ausente -> no se toca (exclude_unset lo omite). `tags: null` explícito
-    # es distinto: significa "limpiar", pero el dominio modela tags como lista no
-    # nullable, así que se coacciona a [] en vez de guardar None (que rompería la lectura).
     if "tags" in data and data["tags"] is None:
         data["tags"] = []
     for field, value in data.items():
@@ -365,10 +639,12 @@ def update_node(node_id: str, payload: schemas.NodeUpdate, db: Session = Depends
 
 
 @app.delete("/api/nodes/{node_id}", status_code=204)
-def delete_node(node_id: str, db: Session = Depends(get_db)):
-    node = db.get(models.Node, node_id)
-    if not node:
-        raise HTTPException(404, "Nodo no encontrado")
+def delete_node(
+    node_id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    node = _get_owned_node(db, node_id, current_user)
     # Eliminar también las aristas conectadas a este nodo
     edges = db.scalars(
         select(models.Edge).where(
@@ -384,9 +660,16 @@ def delete_node(node_id: str, db: Session = Depends(get_db)):
 
 
 # ------------------------------------------------------------------ aristas
+
+
 @app.post("/api/boards/{board_id}/edges", response_model=schemas.EdgeSchema, status_code=201)
-def create_edge(board_id: str, payload: schemas.EdgeSchema, db: Session = Depends(get_db)):
-    board = _get_board(db, board_id)
+def create_edge(
+    board_id: str,
+    payload: schemas.EdgeSchema,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    board = _get_board(db, board_id, current_user)
 
     node_ids = {n.id for n in board.nodes}
     if payload.from_.nodeId not in node_ids or payload.to.nodeId not in node_ids:
@@ -407,16 +690,17 @@ def create_edge(board_id: str, payload: schemas.EdgeSchema, db: Session = Depend
 
 
 @app.patch("/api/edges/{edge_id}", response_model=schemas.EdgeSchema)
-def update_edge(edge_id: str, payload: schemas.EdgeUpdate, db: Session = Depends(get_db)):
-    edge = db.get(models.Edge, edge_id)
-    if not edge:
-        raise HTTPException(404, "Arista no encontrada")
+def update_edge(
+    edge_id: str,
+    payload: schemas.EdgeUpdate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    edge = _get_owned_edge(db, edge_id, current_user)
     if payload.curved is not None:
         edge.curved = payload.curved
     fields = payload.model_dump(exclude_unset=True)
     if "label" in fields:
-        # ausente -> no se toca; presente -> se aplica; null explícito -> vaciar
-        # (EdgeSchema.label es str no-nullable, guardar None rompería la lectura).
         edge.label = fields["label"] if fields["label"] is not None else ""
     edge.board.updated_at = models._now()
     db.commit()
@@ -425,15 +709,51 @@ def update_edge(edge_id: str, payload: schemas.EdgeUpdate, db: Session = Depends
 
 
 @app.delete("/api/edges/{edge_id}", status_code=204)
-def delete_edge(edge_id: str, db: Session = Depends(get_db)):
-    edge = db.get(models.Edge, edge_id)
-    if not edge:
-        raise HTTPException(404, "Arista no encontrada")
+def delete_edge(
+    edge_id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    edge = _get_owned_edge(db, edge_id, current_user)
     edge.board.updated_at = models._now()
     db.delete(edge)
     db.commit()
 
 
+# ------------------------------------------------------------------ health
+
+
 @app.get("/api/health")
 def health():
     return {"status": "ok"}
+
+
+# ------------------------------------------------------------------
+# Frontend estático — orden crítico
+# ------------------------------------------------------------------
+# Este bloque DEBE estar al final del archivo, después de TODOS los
+# endpoints /api/*. Starlette resuelve rutas por orden de registro,
+# no por especificidad. Si el catch-all se registrara antes que
+# /api/..., las rutas de la API nunca se alcanzarían (el catch-all
+# las taparía porque matchea cualquier path).
+#
+# En desarrollo local este directorio no existe (Vite sirve el
+# frontend con su proxy), así que el bloque se saltea.
+
+_STATIC_DIR = Path(__file__).resolve().parent / "static"
+
+if _STATIC_DIR.is_dir():
+    _assets_dir = _STATIC_DIR / "assets"
+    if _assets_dir.is_dir():
+        app.mount(
+            "/assets",
+            StaticFiles(directory=str(_assets_dir)),
+            name="assets",
+        )
+
+    @app.get("/{full_path:path}")
+    async def _serve_spa(full_path: str):
+        # No capturar rutas /api/* que no existen (responder 404 limpio)
+        if full_path.startswith("api/"):
+            raise HTTPException(404, "Not found")
+        return FileResponse(str(_STATIC_DIR / "index.html"))
