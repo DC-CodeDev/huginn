@@ -12,7 +12,8 @@ import os
 import tempfile
 from pathlib import Path
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
+from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 logger = logging.getLogger(__name__)
@@ -199,6 +200,38 @@ def get_database_url() -> str:
 
 
 # ---------------------------------------------------------------------------
+# SQLite busy timeout (desde variable de entorno)
+# ---------------------------------------------------------------------------
+
+
+def _resolve_busy_timeout() -> int:
+    """Lee y valida ``SQLITE_BUSY_TIMEOUT_MS``.
+
+    Returns
+    -------
+    int
+        Milisegundos de busy timeout (default 5000).
+
+    Raises
+    ------
+    DatabaseConfigurationError
+        Si el valor no es un entero positivo.
+    """
+    raw = os.getenv("SQLITE_BUSY_TIMEOUT_MS", "5000")
+    try:
+        value = int(raw)
+    except (ValueError, TypeError):
+        raise DatabaseConfigurationError(
+            f"SQLITE_BUSY_TIMEOUT_MS debe ser un entero, pero se recibió: {raw!r}"
+        )
+    if value < 0:
+        raise DatabaseConfigurationError(
+            f"SQLITE_BUSY_TIMEOUT_MS no puede ser negativo: {value}"
+        )
+    return value
+
+
+# ---------------------------------------------------------------------------
 # engine + sesión
 # ---------------------------------------------------------------------------
 
@@ -208,6 +241,26 @@ engine = create_engine(
     DATABASE_URL,
     connect_args={"check_same_thread": False},
 )
+
+# ---------------------------------------------------------------------------
+# configuración por conexión (solo SQLite)
+# ---------------------------------------------------------------------------
+
+if engine.url.get_backend_name() == "sqlite":
+    _busy_timeout_ms = _resolve_busy_timeout()
+
+    @event.listens_for(engine, "connect")
+    def _configure_sqlite(dbapi_connection, _connection_record):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.execute(f"PRAGMA busy_timeout={_busy_timeout_ms}")
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.close()
+
+    logger.info(
+        "[huginn-db] sqlite journal_mode=wal busy_timeout_ms=%d foreign_keys=on",
+        _busy_timeout_ms,
+    )
 
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 

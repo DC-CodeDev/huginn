@@ -75,18 +75,21 @@ export function getUpdateWarning(saveStatus: SaveStatus | null): string | null {
   if (saveStatus === "error") {
     return "Hay un error de guardado. Recargar ahora puede perder cambios recientes.";
   }
+  if (saveStatus === "conflicto") {
+    return "Hay un conflicto de versión. Resolvelo antes de actualizar.";
+  }
   return null;
 }
 
 export function canApplyUpdate(saveStatus: SaveStatus | null): boolean {
-  return saveStatus !== "guardando";
+  return saveStatus !== "guardando" && saveStatus !== "conflicto";
 }
 
 export function resolveUpdateIntent(
   saveStatus: SaveStatus | null,
   needsConfirmation: boolean,
 ): "blocked" | "confirm" | "apply" {
-  if (saveStatus === "guardando") {
+  if (saveStatus === "guardando" || saveStatus === "conflicto") {
     return "blocked";
   }
   if (saveStatus === "error" && !needsConfirmation) {

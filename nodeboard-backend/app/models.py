@@ -12,7 +12,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, String
+from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -50,6 +50,9 @@ class User(Base):
         back_populates="user", cascade="all, delete-orphan"
     )
     studios: Mapped[list["Studio"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+    mcp_tokens: Mapped[list["MCPToken"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
 
@@ -107,6 +110,7 @@ class Board(Base):
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
     name: Mapped[str] = mapped_column(String(200), default="Tablero sin nombre")
+    version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=_now, onupdate=_now
@@ -167,3 +171,25 @@ class Edge(Base):
     label: Mapped[str] = mapped_column(String(300), default="")  # texto libre: "depende de", etc.
 
     board: Mapped["Board"] = relationship(back_populates="edges")
+
+
+class MCPToken(Base):
+    __tablename__ = "mcp_tokens"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    token_prefix: Mapped[str] = mapped_column(String(32), nullable=False)
+    token_hash: Mapped[str] = mapped_column(
+        String(64), unique=True, index=True, nullable=False
+    )
+    scopes: Mapped[list] = mapped_column(JSON, nullable=False)
+    constraints: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    last_used_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    revoked_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+    user: Mapped["User"] = relationship(back_populates="mcp_tokens")

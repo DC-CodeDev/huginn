@@ -87,6 +87,7 @@ export interface Folder {
 export interface BoardSummary {
   id: string
   name: string
+  version: number
   created_at: string
   updated_at: string
   node_count: number

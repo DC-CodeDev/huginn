@@ -97,6 +97,16 @@ class NodeUpdate(BaseModel):
     tags: Optional[list[str]] = None
 
 
+class NodeCreateRequest(NodeSchema):
+    """Creación de nodo con optimistic locking."""
+    expected_version: int
+
+
+class NodeUpdateRequest(NodeUpdate):
+    """Actualización de nodo con optimistic locking."""
+    expected_version: int
+
+
 # ---------------------------------------------------------------- Aristas
 class PortRef(BaseModel):
     nodeId: str
@@ -116,6 +126,16 @@ class EdgeSchema(BaseModel):
 class EdgeUpdate(BaseModel):
     curved: Optional[bool] = None
     label: Optional[str] = None
+
+
+class EdgeCreateRequest(EdgeSchema):
+    """Creación de arista con optimistic locking."""
+    expected_version: int
+
+
+class EdgeUpdateRequest(EdgeUpdate):
+    """Actualización de arista con optimistic locking."""
+    expected_version: int
 
 
 # ---------------------------------------------------------------- Auth
@@ -174,11 +194,13 @@ class BoardCreate(BaseModel):
 
 class BoardRename(BaseModel):
     name: str
+    expected_version: int
 
 
 class BoardSummary(BaseModel):
     id: str
     name: str
+    version: int
     created_at: datetime
     updated_at: datetime
     node_count: int = 0
@@ -191,6 +213,7 @@ class BoardState(BaseModel):
     """Estado completo del tablero, tal como lo consume el canvas."""
     id: str
     name: str
+    version: int
     updated_at: datetime
     nodes: list[NodeSchema]
     edges: list[EdgeSchema]
@@ -199,6 +222,7 @@ class BoardState(BaseModel):
 class BoardStateSave(BaseModel):
     """Payload para guardar todo el estado de una (autosave del canvas)."""
     name: Optional[str] = None
+    expected_version: int
     nodes: list[NodeSchema] = Field(default_factory=list)
     edges: list[EdgeSchema] = Field(default_factory=list)
 
@@ -207,3 +231,101 @@ class StudioBoardsOut(BaseModel):
     """Boards de un Studio: separa raíz de los que están en carpetas."""
     root_boards: list[BoardSummary]
     folder_boards: list[BoardSummary]
+
+
+class MCPAuthCheck(BaseModel):
+    """Respuesta del endpoint de diagnóstico auth-check.
+
+    Nunca incluye token completo, token_hash ni email del usuario.
+    """
+    authenticated: bool = True
+    token_id: str
+    token_prefix: str
+    scopes: list[str]
+    constraints: MCPTokenConstraints | None = None
+    expires_at: datetime
+    last_used_at: datetime | None = None
+
+
+# ---------------------------------------------------------------- MCP Tokens
+
+MCP_SCOPES: set[str] = {
+    "studios:read",
+    "folders:read",
+    "boards:read",
+    "nodes:read",
+    "boards:create",
+    "boards:update",
+    "boards:delete",
+    "nodes:create",
+    "nodes:update",
+    "nodes:delete",
+    "edges:create",
+    "edges:update",
+    "edges:delete",
+    "layouts:execute",
+}
+
+MAX_SCOPES = 20
+
+
+def normalise_scopes(scopes: list[str]) -> list[str]:
+    """Valida, deduplica y ordena scopes.  Lanza ValidationFailure si hay scopes inválidos."""
+    unique: list[str] = []
+    seen: set[str] = set()
+    for scope in scopes:
+        if scope in seen:
+            continue
+        if scope not in MCP_SCOPES:
+            from .services.errors import InvalidScope
+
+            raise InvalidScope([scope])
+        unique.append(scope)
+        seen.add(scope)
+    if len(unique) > MAX_SCOPES:
+        from .services.errors import ValidationFailure
+
+        raise ValidationFailure(f"Máximo {MAX_SCOPES} scopes por token")
+    return unique
+
+
+class MCPTokenConstraints(BaseModel):
+    studio_ids: list[str] | None = None
+    board_ids: list[str] | None = None
+
+
+class MCPTokenCreate(BaseModel):
+    name: str
+    scopes: list[str]
+    expires_in_days: int = 90
+    constraints: MCPTokenConstraints | None = None
+
+
+class MCPTokenCreated(BaseModel):
+    """Respuesta que contiene el token completo — única exposición."""
+
+    id: str
+    name: str
+    token: str
+    token_prefix: str
+    scopes: list[str]
+    constraints: MCPTokenConstraints | None
+    created_at: datetime
+    expires_at: datetime
+    warning: str = "Este token no volverá a mostrarse."
+
+
+class MCPTokenSummary(BaseModel):
+    """Resumen público — nunca incluye token ni token_hash."""
+
+    id: str
+    name: str
+    token_prefix: str
+    scopes: list[str]
+    constraints: MCPTokenConstraints | None
+    created_at: datetime
+    last_used_at: datetime | None = None
+    expires_at: datetime | None = None
+    revoked_at: datetime | None = None
+
+    model_config = ConfigDict(from_attributes=True)

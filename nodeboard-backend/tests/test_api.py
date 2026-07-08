@@ -21,6 +21,7 @@ def test_state_contract():
             "w": 280, "title": "Nodo", "ports": [], "blocks": [], "stages": [],
         }],
         "edges": [],
+        "expected_version": 1,
     })
     assert state.nodes[0].title == "Nodo"
 

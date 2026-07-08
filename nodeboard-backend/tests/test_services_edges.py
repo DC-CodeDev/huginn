@@ -1,0 +1,432 @@
+"""Tests unitarios del servicio de Edges.
+
+Cubre: creación (válida/ajena/inexistente/nodos de otro board/serialización),
+actualización (curved/label/parcial/ajena/inexistente),
+eliminación (propia/ajena/inexistente/aislamiento),
+board.updated_at, y optimistic locking.
+"""
+import uuid
+
+import pytest
+from sqlalchemy import create_engine, event
+from sqlalchemy.engine import Engine
+from sqlalchemy.orm import sessionmaker
+
+from app.database import Base
+from app.models import Board, Edge, Node, Studio, User
+from app.schemas import EdgeSchema, EdgeUpdate, PortRef
+from app.services.edges import create_edge, delete_edge, update_edge
+from app.services.errors import ResourceNotFound, ValidationFailure, VersionConflict
+
+
+@pytest.fixture()
+def db():
+    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+
+    @event.listens_for(Engine, "connect")
+    def _set_fk(dbapi_conn, _):
+        try:
+            dbapi_conn.execute("PRAGMA foreign_keys=ON")
+        except Exception:
+            pass
+
+    Base.metadata.create_all(bind=engine)
+    TestingSession = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    session = TestingSession()
+    try:
+        yield session
+    finally:
+        session.close()
+
+
+def _user(db, email=None) -> User:
+    u = User(
+        id=uuid.uuid4().hex[:16],
+        email=email or f"{uuid.uuid4().hex}@example.com",
+        name="Test",
+        auth_provider="google",
+    )
+    db.add(u)
+    db.commit()
+    return u
+
+
+def _studio(db, user) -> Studio:
+    st = Studio(id=uuid.uuid4().hex[:16], name="S", color="azul", user_id=user.id)
+    db.add(st)
+    db.commit()
+    return st
+
+
+def _board(db, user, studio=None) -> Board:
+    st = studio or _studio(db, user)
+    b = Board(id=uuid.uuid4().hex[:16], name="B", studio_id=st.id, version=1)
+    db.add(b)
+    db.commit()
+    return b
+
+
+def _node(db, board, node_id="n1") -> Node:
+    n = Node(id=node_id, board_id=board.id)
+    db.add(n)
+    db.commit()
+    return n
+
+
+def _edge_schema(edge_id="e1", from_n="n1", to_n="n2", **overrides) -> EdgeSchema:
+    return EdgeSchema(
+        id=edge_id,
+        from_=PortRef(nodeId=from_n, portId="p"),
+        to=PortRef(nodeId=to_n, portId="p"),
+        **overrides,
+    )
+
+
+def _two_nodes(db, user=None, board=None):
+    """Crea board + dos nodos, devuelve (board, n1_id, n2_id)."""
+    u = user or _user(db)
+    b = board or _board(db, u)
+    _node(db, b, "n1")
+    _node(db, b, "n2")
+    return b, "n1", "n2"
+
+
+# ======================================================================
+# create_edge
+# ======================================================================
+
+
+def test_create_edge_valid(db):
+    u = _user(db)
+    b, n1, n2 = _two_nodes(db, user=u)
+    result = create_edge(db, u.id, b.id, _edge_schema("e1"), expected_version=1)
+    assert result.id == "e1"
+    assert result.label == ""
+    assert result.curved is True
+
+
+def test_create_edge_other_board_fails(db):
+    a = _user(db, "a@test.com")
+    b_user = _user(db, "b@test.com")
+    b, n1, n2 = _two_nodes(db, user=a)
+    with pytest.raises(ResourceNotFound):
+        create_edge(db, b_user.id, b.id, _edge_schema("e1"), expected_version=1)
+
+
+def test_create_edge_nonexistent_board_fails(db):
+    u = _user(db)
+    with pytest.raises(ResourceNotFound):
+        create_edge(db, u.id, "no-such-board", _edge_schema("e1"), expected_version=1)
+
+
+def test_create_edge_source_node_missing_fails(db):
+    u = _user(db)
+    b = _board(db, u)
+    _node(db, b, "n2")  # solo n2, falta n1
+    with pytest.raises(ValidationFailure):
+        create_edge(db, u.id, b.id, _edge_schema("e1"), expected_version=1)
+
+
+def test_create_edge_target_node_missing_fails(db):
+    u = _user(db)
+    b = _board(db, u)
+    _node(db, b, "n1")  # solo n1, falta n2
+    with pytest.raises(ValidationFailure):
+        create_edge(db, u.id, b.id, _edge_schema("e1"), expected_version=1)
+
+
+def test_create_edge_source_from_other_board_fails(db):
+    u = _user(db)
+    b1, _, n2 = _two_nodes(db, user=u)  # n1, n2 en b1
+    b2 = _board(db, u)
+    _node(db, b2, "n3")  # n3 en b2
+    # n1 está en b1, n3 está en b2 → edge en b1 no debe validar
+    with pytest.raises(ValidationFailure):
+        create_edge(db, u.id, b1.id, _edge_schema("e1", from_n="n1", to_n="n3"), expected_version=1)
+
+
+def test_create_edge_target_from_other_board_fails(db):
+    u = _user(db)
+    b1, n1, _ = _two_nodes(db, user=u)  # n1 en b1
+    b2 = _board(db, u)
+    _node(db, b2, "n3")  # n3 en b2
+    with pytest.raises(ValidationFailure):
+        create_edge(db, u.id, b1.id, _edge_schema("e1", from_n="n1", to_n="n3"), expected_version=1)
+
+
+def test_create_edge_conserves_from(db):
+    u = _user(db)
+    b, n1, n2 = _two_nodes(db, user=u)
+    result = create_edge(db, u.id, b.id, _edge_schema("e1", from_n="n1", to_n="n2"), expected_version=1)
+    db.expire_all()
+    edge = db.get(Edge, "e1")
+    assert edge.from_node == "n1"
+    assert edge.from_port == "p"
+
+
+def test_create_edge_conserves_to(db):
+    u = _user(db)
+    b, n1, n2 = _two_nodes(db, user=u)
+    result = create_edge(db, u.id, b.id, _edge_schema("e1"), expected_version=1)
+    assert result.to.nodeId == "n2"
+    assert result.to.portId == "p"
+
+
+def test_create_edge_conserves_curved(db):
+    u = _user(db)
+    b, n1, n2 = _two_nodes(db, user=u)
+    result = create_edge(db, u.id, b.id, _edge_schema("e1", curved=False), expected_version=1)
+    assert result.curved is False
+
+
+def test_create_edge_conserves_label(db):
+    u = _user(db)
+    b, n1, n2 = _two_nodes(db, user=u)
+    result = create_edge(db, u.id, b.id, _edge_schema("e1", label="depende de"), expected_version=1)
+    assert result.label == "depende de"
+
+
+def test_create_edge_generates_id(db):
+    u = _user(db)
+    b, n1, n2 = _two_nodes(db, user=u)
+    result = create_edge(db, u.id, b.id, _edge_schema(None), expected_version=1)
+    assert result.id is not None
+    assert len(result.id) == 32
+
+
+def test_create_edge_updates_board_timestamp(db):
+    u = _user(db)
+    b, n1, n2 = _two_nodes(db, user=u)
+    orig_updated = b.updated_at
+    import time
+    time.sleep(0.02)
+    create_edge(db, u.id, b.id, _edge_schema("e1"), expected_version=1)
+    db.expire_all()
+    assert db.get(Board, b.id).updated_at > orig_updated
+
+
+def test_create_edge_persists(db):
+    u = _user(db)
+    b, n1, n2 = _two_nodes(db, user=u)
+    create_edge(db, u.id, b.id, _edge_schema("e1"), expected_version=1)
+    db.expire_all()
+    assert db.get(Edge, "e1") is not None
+
+
+# ======================================================================
+# update_edge
+# ======================================================================
+
+
+def test_update_curved(db):
+    u = _user(db)
+    b, n1, n2 = _two_nodes(db, user=u)
+    create_edge(db, u.id, b.id, _edge_schema("e1", curved=True), expected_version=1)
+    result = update_edge(db, u.id, "e1", EdgeUpdate(curved=False), expected_version=2)
+    assert result.curved is False
+
+
+def test_update_label(db):
+    u = _user(db)
+    b, n1, n2 = _two_nodes(db, user=u)
+    create_edge(db, u.id, b.id, _edge_schema("e1", label="old"), expected_version=1)
+    result = update_edge(db, u.id, "e1", EdgeUpdate(label="new"), expected_version=2)
+    assert result.label == "new"
+
+
+def test_update_label_null(db):
+    """Label explícitamente null debe convertirse a vacío."""
+    u = _user(db)
+    b, n1, n2 = _two_nodes(db, user=u)
+    create_edge(db, u.id, b.id, _edge_schema("e1", label="text"), expected_version=1)
+    result = update_edge(db, u.id, "e1", EdgeUpdate(label=None), expected_version=2)
+    assert result.label == ""
+
+
+def test_update_preserves_unset_fields(db):
+    u = _user(db)
+    b, n1, n2 = _two_nodes(db, user=u)
+    create_edge(db, u.id, b.id, _edge_schema("e1", curved=False, label="keep"), expected_version=1)
+    result = update_edge(db, u.id, "e1", EdgeUpdate(curved=True), expected_version=2)
+    assert result.curved is True
+    assert result.label == "keep"  # no enviado
+
+
+def test_update_other_user_fails(db):
+    a = _user(db, "a@test.com")
+    b_user = _user(db, "b@test.com")
+    ba, n1, n2 = _two_nodes(db, user=a)
+    create_edge(db, a.id, ba.id, _edge_schema("e1"), expected_version=1)
+    with pytest.raises(ResourceNotFound):
+        update_edge(db, b_user.id, "e1", EdgeUpdate(label="Hack"), expected_version=1)
+
+
+def test_update_nonexistent_fails(db):
+    u = _user(db)
+    with pytest.raises(ResourceNotFound):
+        update_edge(db, u.id, "no-such-edge", EdgeUpdate(label="Nope"), expected_version=1)
+
+
+def test_update_board_timestamp(db):
+    u = _user(db)
+    b, n1, n2 = _two_nodes(db, user=u)
+    create_edge(db, u.id, b.id, _edge_schema("e1"), expected_version=1)
+    import time
+    time.sleep(0.02)
+    db.expire_all()
+    orig_updated = db.get(Board, b.id).updated_at
+    update_edge(db, u.id, "e1", EdgeUpdate(label="x"), expected_version=2)
+    db.expire_all()
+    assert db.get(Board, b.id).updated_at > orig_updated
+
+
+# ======================================================================
+# delete_edge
+# ======================================================================
+
+
+def test_delete_own_edge(db):
+    u = _user(db)
+    b, n1, n2 = _two_nodes(db, user=u)
+    create_edge(db, u.id, b.id, _edge_schema("e1"), expected_version=1)
+    delete_edge(db, u.id, "e1", expected_version=2)
+    assert db.get(Edge, "e1") is None
+
+
+def test_delete_other_user_edge_fails(db):
+    a = _user(db, "a@test.com")
+    b_user = _user(db, "b@test.com")
+    ba, n1, n2 = _two_nodes(db, user=a)
+    create_edge(db, a.id, ba.id, _edge_schema("e1"), expected_version=1)
+    with pytest.raises(ResourceNotFound):
+        delete_edge(db, b_user.id, "e1", expected_version=1)
+    assert db.get(Edge, "e1") is not None
+
+
+def test_delete_nonexistent_edge_fails(db):
+    u = _user(db)
+    with pytest.raises(ResourceNotFound):
+        delete_edge(db, u.id, "no-such-id", expected_version=1)
+
+
+def test_delete_does_not_affect_other_edges(db):
+    u = _user(db)
+    b, n1, n2 = _two_nodes(db, user=u)
+    _node(db, b, "n3")
+    create_edge(db, u.id, b.id, _edge_schema("e1", from_n="n1", to_n="n2"), expected_version=1)
+    create_edge(db, u.id, b.id, _edge_schema("e2", from_n="n1", to_n="n3"), expected_version=2)
+    delete_edge(db, u.id, "e1", expected_version=3)
+    assert db.get(Edge, "e1") is None
+    assert db.get(Edge, "e2") is not None
+
+
+def test_delete_does_not_affect_nodes(db):
+    u = _user(db)
+    b, n1, n2 = _two_nodes(db, user=u)
+    create_edge(db, u.id, b.id, _edge_schema("e1"), expected_version=1)
+    delete_edge(db, u.id, "e1", expected_version=2)
+    assert db.get(Node, "n1") is not None
+    assert db.get(Node, "n2") is not None
+
+
+def test_delete_persists(db):
+    u = _user(db)
+    b, n1, n2 = _two_nodes(db, user=u)
+    create_edge(db, u.id, b.id, _edge_schema("e1"), expected_version=1)
+    delete_edge(db, u.id, "e1", expected_version=2)
+    db.expire_all()
+    assert db.get(Edge, "e1") is None
+
+
+# ======================================================================
+# optimistic locking — versioning
+# ======================================================================
+
+
+def test_create_edge_increments_version(db):
+    u = _user(db)
+    b, n1, n2 = _two_nodes(db, user=u)
+    create_edge(db, u.id, b.id, _edge_schema("e1"), expected_version=1)
+    db.expire_all()
+    assert db.get(Board, b.id).version == 2
+
+
+def test_update_edge_increments_version(db):
+    u = _user(db)
+    b, n1, n2 = _two_nodes(db, user=u)
+    create_edge(db, u.id, b.id, _edge_schema("e1"), expected_version=1)
+    update_edge(db, u.id, "e1", EdgeUpdate(label="x"), expected_version=2)
+    db.expire_all()
+    assert db.get(Board, b.id).version == 3
+
+
+def test_delete_edge_increments_version(db):
+    u = _user(db)
+    b, n1, n2 = _two_nodes(db, user=u)
+    create_edge(db, u.id, b.id, _edge_schema("e1"), expected_version=1)
+    delete_edge(db, u.id, "e1", expected_version=2)
+    db.expire_all()
+    assert db.get(Board, b.id).version == 3
+
+
+def test_create_edge_wrong_version_fails(db):
+    u = _user(db)
+    b, n1, n2 = _two_nodes(db, user=u)
+    with pytest.raises(VersionConflict):
+        create_edge(db, u.id, b.id, _edge_schema("e1"), expected_version=99)
+    assert db.get(Edge, "e1") is None
+
+
+def test_update_edge_wrong_version_fails(db):
+    u = _user(db)
+    b, n1, n2 = _two_nodes(db, user=u)
+    create_edge(db, u.id, b.id, _edge_schema("e1", label="x"), expected_version=1)
+    with pytest.raises(VersionConflict):
+        update_edge(db, u.id, "e1", EdgeUpdate(label="y"), expected_version=99)
+    db.expire_all()
+    assert db.get(Edge, "e1").label == "x"
+
+
+def test_delete_edge_wrong_version_fails(db):
+    u = _user(db)
+    b, n1, n2 = _two_nodes(db, user=u)
+    create_edge(db, u.id, b.id, _edge_schema("e1"), expected_version=1)
+    with pytest.raises(VersionConflict):
+        delete_edge(db, u.id, "e1", expected_version=99)
+    assert db.get(Edge, "e1") is not None
+
+
+def test_edge_ops_increment_exactly_one(db):
+    """Cada operación de edge incrementa exactamente 1."""
+    u = _user(db)
+    b, n1, n2 = _two_nodes(db, user=u)
+    create_edge(db, u.id, b.id, _edge_schema("e1"), expected_version=1)
+    db.expire_all()
+    assert db.get(Board, b.id).version == 2
+
+
+def test_create_edge_rollback_reverts_version(db, monkeypatch):
+    u = _user(db)
+    b, n1, n2 = _two_nodes(db, user=u)
+
+    def _failing_commit():
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(db, "commit", _failing_commit)
+    with pytest.raises(RuntimeError):
+        create_edge(db, u.id, b.id, _edge_schema("e1"), expected_version=1)
+    db.rollback()
+    db.expire_all()
+    assert db.get(Board, b.id).version == 1
+    assert db.get(Edge, "e1") is None
+
+
+def test_concurrent_create_edge_conflict(db):
+    """Dos creates con misma versión: primero funciona, segundo falla."""
+    u = _user(db)
+    b, n1, n2 = _two_nodes(db, user=u)
+    create_edge(db, u.id, b.id, _edge_schema("e1"), expected_version=1)
+    with pytest.raises(VersionConflict):
+        create_edge(db, u.id, b.id, _edge_schema("e2"), expected_version=1)
+    db.expire_all()
+    assert db.get(Board, b.id).version == 2

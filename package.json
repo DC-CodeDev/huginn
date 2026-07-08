@@ -22,9 +22,12 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
     "@types/react": "latest",
     "@types/react-dom": "latest",
     "concurrently": "latest",
+    "jsdom": "^29.1.1",
     "tailwindcss": "latest",
     "typescript": "latest",
     "vite": "latest",
