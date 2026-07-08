@@ -111,7 +111,7 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
   const [snapEnabled, setSnapEnabled] = useState(true);
   const snapEnabledRef = useRef(snapEnabled);
   snapEnabledRef.current = snapEnabled;
-  const snapTargetRef = useRef<{ sx: number; sy: number } | null>(null);
+  const snapTargetRef = useRef<{ sx: number; sy: number; axis: "x" | "y" } | null>(null);
 
   const toWorld = useCallback((sx: number, sy: number) => {
     const rect = canvasRef.current!.getBoundingClientRect();
@@ -330,10 +330,14 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
   };
 
   const applySnap = (draggedId: string, px: number, py: number): { x: number; y: number } | null => {
-    // Histéresis: si ya estamos enganchados, usar umbral de salida
+    // Histéresis por eje primario: si ya estamos enganchados a un snap
+    // horizontal, solo medir distancia en X; si vertical, solo en Y.
+    // Esto evita que un movimiento en el eje perpendicular libere el snap
+    // y dispare un reenganche violento a otro nodo.
     const cur = snapTargetRef.current;
-    if (cur && Math.abs(px - cur.sx) < SNAP_EXIT_THRESHOLD && Math.abs(py - cur.sy) < SNAP_EXIT_THRESHOLD) {
-      return { x: cur.sx, y: cur.sy };
+    if (cur) {
+      const d = cur.axis === "x" ? Math.abs(px - cur.sx) : Math.abs(py - cur.sy);
+      if (d < SNAP_EXIT_THRESHOLD) return { x: cur.sx, y: cur.sy };
     }
     snapTargetRef.current = null;
 
@@ -341,7 +345,7 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
     if (!dragged) return null;
     const dragH = getNodeWorldHeight(draggedId);
     const others = nodesRef.current.filter((n) => n.id !== draggedId);
-    let best: { x: number; y: number; dist: number } | null = null;
+    let best: { x: number; y: number; dist: number; axis: "x" | "y" } | null = null;
 
     for (const other of others) {
       const otherH = getNodeWorldHeight(other.id);
@@ -349,26 +353,26 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
       const txr = other.x + other.w + SNAP_DISTANCE;
       const dxr = Math.abs(px - txr);
       if (px < txr + 2 && dxr < SNAP_ENTRY_THRESHOLD && (!best || dxr < best.dist))
-        best = { x: txr, y: other.y, dist: dxr };
+        best = { x: txr, y: other.y, dist: dxr, axis: "x" };
       // Izquierda — solo si el nodo arrastrado está a la derecha del destino
       const txl = other.x - dragged.w - SNAP_DISTANCE;
       const dxl = Math.abs(px - txl);
       if (px > txl - 2 && dxl < SNAP_ENTRY_THRESHOLD && (!best || dxl < best.dist))
-        best = { x: txl, y: other.y, dist: dxl };
+        best = { x: txl, y: other.y, dist: dxl, axis: "x" };
       // Abajo — solo si el nodo arrastrado está arriba del destino
       const tyd = other.y + otherH + SNAP_DISTANCE;
       const dyd = Math.abs(py - tyd);
       if (py < tyd + 2 && dyd < SNAP_ENTRY_THRESHOLD && (!best || dyd < best.dist))
-        best = { x: other.x, y: tyd, dist: dyd };
+        best = { x: other.x, y: tyd, dist: dyd, axis: "y" };
       // Arriba — solo si el nodo arrastrado está abajo del destino
       const tyu = other.y - dragH - SNAP_DISTANCE;
       const dyu = Math.abs(py - tyu);
       if (py > tyu - 2 && dyu < SNAP_ENTRY_THRESHOLD && (!best || dyu < best.dist))
-        best = { x: other.x, y: tyu, dist: dyu };
+        best = { x: other.x, y: tyu, dist: dyu, axis: "y" };
     }
 
     if (best) {
-      snapTargetRef.current = { sx: best.x, sy: best.y };
+      snapTargetRef.current = { sx: best.x, sy: best.y, axis: best.axis };
       return { x: best.x, y: best.y };
     }
     return null;
@@ -638,7 +642,7 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
           {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
         </ToolBtn>
         <ToolBtn T={T} testId="snap-toggle" label={snapEnabled ? "Snap: activado" : "Snap: desactivado"} onClick={() => { const next = !snapEnabled; snapEnabledRef.current = next; setSnapEnabled(next); }}>
-          <Magnet size={16} />
+          <span style={{ opacity: snapEnabled ? 1 : 0.35 }}><Magnet size={16} /></span>
         </ToolBtn>
         <Sep T={T} />
         <ToolBtn T={T} label="Alejar" onClick={() => setView((v) => ({ ...v, z: Math.max(0.25, v.z * 0.9) }))}><ZoomOut size={16} /></ToolBtn>
