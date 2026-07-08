@@ -183,7 +183,7 @@ class TestMigrationScript:
         assert "mcp_tokens" in inspect(engine).get_table_names()
         engine.dispose()
 
-        _run_downgrade_via_alembic(tmp_path)
+        _run_downgrade_via_alembic(tmp_path, "a6609de40827")
 
         engine = create_engine(f"sqlite:///{db_path}")
         assert "mcp_tokens" not in inspect(engine).get_table_names()
