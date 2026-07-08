@@ -233,6 +233,13 @@ class StudioBoardsOut(BaseModel):
     folder_boards: list[BoardSummary]
 
 
+# ---------------------------------------------------------------- MCP Tokens
+
+class MCPTokenConstraints(BaseModel):
+    studio_ids: list[str] | None = None
+    board_ids: list[str] | None = None
+
+
 class MCPAuthCheck(BaseModel):
     """Respuesta del endpoint de diagnóstico auth-check.
 
@@ -246,8 +253,7 @@ class MCPAuthCheck(BaseModel):
     expires_at: datetime
     last_used_at: datetime | None = None
 
-
-# ---------------------------------------------------------------- MCP Tokens
+# ---------------------------------------------------------------- Scopes y utilidades
 
 MCP_SCOPES: set[str] = {
     "studios:read",
@@ -287,11 +293,6 @@ def normalise_scopes(scopes: list[str]) -> list[str]:
 
         raise ValidationFailure(f"Máximo {MAX_SCOPES} scopes por token")
     return unique
-
-
-class MCPTokenConstraints(BaseModel):
-    studio_ids: list[str] | None = None
-    board_ids: list[str] | None = None
 
 
 class MCPTokenCreate(BaseModel):
