@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import {
   Plus, Trash2, Moon, Sun, Spline, Minus, ZoomIn, ZoomOut, Maximize2, Clock,
-  ArrowLeft, Filter, Settings, CircleUser,
+  ArrowLeft, Filter, Settings, CircleUser, Magnet,
 } from "lucide-react";
 import { api, useBoardPersistence } from "./api";
 import { PORT_COLORS } from "./types";
@@ -27,6 +27,10 @@ import { usePwa } from "./lib/pwa";
 
 const CARD_W = 280;
 const TIMELINE_W = 360;
+
+/* ---------- Snap magnético ---------- */
+const SNAP_THRESHOLD = 30;   // px en espacio mundo — umbral de activación
+const SNAP_DISTANCE = 32;    // px (2 rem) — separación estándar entre nodos
 
 /* ------------------------------------------------------------------ */
 /*  Props                                                              */
@@ -99,6 +103,13 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
   const canvasRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<DragState>(null);
   const groupDragMovedRef = useRef(false);
+  const nodesRef = useRef(nodes);
+  nodesRef.current = nodes;
+  const marqueeRef = useRef<{ sx: number; sy: number; mx: number; my: number } | null>(null);
+  const [marqueeRect, setMarqueeRect] = useState<{ sx: number; sy: number; mx: number; my: number } | null>(null);
+  const [snapEnabled, setSnapEnabled] = useState(true);
+  const snapEnabledRef = useRef(snapEnabled);
+  snapEnabledRef.current = snapEnabled;
 
   const toWorld = useCallback((sx: number, sy: number) => {
     const rect = canvasRef.current!.getBoundingClientRect();
@@ -129,13 +140,26 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
   useEffect(() => {
     const move = (e: MouseEvent) => {
       setMouseWorld(toWorld(e.clientX, e.clientY));
+      if (marqueeRef.current) {
+        const rect = canvasRef.current!.getBoundingClientRect();
+        const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+        marqueeRef.current.mx = mx;
+        marqueeRef.current.my = my;
+        setMarqueeRect({ sx: marqueeRef.current.sx, sy: marqueeRef.current.sy, mx, my });
+        return;
+      }
       const d = dragRef.current;
       if (!d) return;
       if (d.kind === "pan") {
         setView((v) => ({ ...v, x: d.vx + (e.clientX - d.sx), y: d.vy + (e.clientY - d.sy) }));
       } else if (d.kind === "node") {
         const w = toWorld(e.clientX, e.clientY);
-        setNodes((ns) => ns.map((n) => (n.id === d.id ? { ...n, x: w.x - d.ox, y: w.y - d.oy } : n)));
+        let nx = w.x - d.ox, ny = w.y - d.oy;
+        if (snapEnabledRef.current) {
+          const snapped = applySnap(d.id, nx, ny);
+          if (snapped) { nx = snapped.x; ny = snapped.y; }
+        }
+        setNodes((ns) => ns.map((n) => (n.id === d.id ? { ...n, x: nx, y: ny } : n)));
       } else if (d.kind === "group") {
         const w = toWorld(e.clientX, e.clientY);
         const dx = w.x - d.wx;
@@ -148,6 +172,26 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
       }
     };
     const up = () => {
+      if (marqueeRef.current) {
+        const m = marqueeRef.current;
+        marqueeRef.current = null;
+        setMarqueeRect(null);
+        const dx = m.mx - m.sx, dy = m.my - m.sy;
+        if (dx < -3 || dx > 3 || dy < -3 || dy > 3) {
+          const rect = canvasRef.current!.getBoundingClientRect();
+          const v = viewRef.current;
+          const wsx = Math.min(m.sx, m.mx) + rect.left, wsy = Math.min(m.sy, m.my) + rect.top;
+          const wmx = Math.max(m.sx, m.mx) + rect.left, wmy = Math.max(m.sy, m.my) + rect.top;
+          const worldMin = toWorld(wsx, wsy);
+          const worldMax = toWorld(wmx, wmy);
+          const currentNodes = nodesRef.current;
+          const selected = currentNodes.filter((n) =>
+            n.x >= worldMin.x && n.x <= worldMax.x && n.y >= worldMin.y && n.y <= worldMax.y
+          );
+          setSelectedNodeIds(selected.map((n) => n.id));
+        }
+        return;
+      }
       const d = dragRef.current;
       if (d?.kind === "group" && !groupDragMovedRef.current) {
         // El usuario hizo click (sin arrastrar) sobre un nodo del grupo → reemplazar selección
@@ -277,6 +321,40 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
     }));
   };
 
+  /* ---------- Snap helpers ---------- */
+  const getNodeWorldHeight = (nodeId: string): number => {
+    const el = canvasRef.current?.querySelector(`[data-testid="node-${nodeId}"]`) as HTMLElement | null;
+    return el?.offsetHeight ?? 120;
+  };
+
+  const applySnap = (draggedId: string, px: number, py: number): { x: number; y: number } | null => {
+    const dragged = nodesRef.current.find((n) => n.id === draggedId);
+    if (!dragged) return null;
+    const dragH = getNodeWorldHeight(draggedId);
+    const others = nodesRef.current.filter((n) => n.id !== draggedId);
+    let best: { x: number; y: number; dist: number } | null = null;
+    for (const other of others) {
+      const otherH = getNodeWorldHeight(other.id);
+      // Derecha
+      const txr = other.x + other.w + SNAP_DISTANCE;
+      const dxr = Math.abs(px - txr);
+      if (dxr < SNAP_THRESHOLD && (!best || dxr < best.dist)) best = { x: txr, y: other.y, dist: dxr };
+      // Izquierda
+      const txl = other.x - dragged.w - SNAP_DISTANCE;
+      const dxl = Math.abs(px - txl);
+      if (dxl < SNAP_THRESHOLD && (!best || dxl < best.dist)) best = { x: txl, y: other.y, dist: dxl };
+      // Abajo
+      const tyd = other.y + otherH + SNAP_DISTANCE;
+      const dyd = Math.abs(py - tyd);
+      if (dyd < SNAP_THRESHOLD && (!best || dyd < best.dist)) best = { x: other.x, y: tyd, dist: dyd };
+      // Arriba
+      const tyu = other.y - dragH - SNAP_DISTANCE;
+      const dyu = Math.abs(py - tyu);
+      if (dyu < SNAP_THRESHOLD && (!best || dyu < best.dist)) best = { x: other.x, y: tyu, dist: dyu };
+    }
+    return best ? { x: best.x, y: best.y } : null;
+  };
+
   /* ---------------- Render de aristas ------------------------------- */
   const nodeById = Object.fromEntries(nodes.map((n) => [n.id, n]));
 
@@ -320,12 +398,19 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
         backgroundPosition: showGrid ? `${view.x}px ${view.y}px` : undefined,
         color: T.text,
         fontFamily: "'Inter','Segoe UI',system-ui,sans-serif",
-        cursor: dragRef.current?.kind === "pan" ? "grabbing" : "default",
+        cursor: dragRef.current?.kind === "pan" ? "grabbing" : marqueeRect ? "crosshair" : "default",
       }}
       onMouseDown={(e) => {
-        if (e.target === canvasRef.current) {
+        if (e.target !== canvasRef.current) return;
+        setSelectedNodeIds([]); setSelectedEdgeId(null); setMenuNode(null); setPending(null); setColorMenu(null);
+        if (e.button === 0) {
+          const rect = canvasRef.current!.getBoundingClientRect();
+          const sx = e.clientX - rect.left, sy = e.clientY - rect.top;
+          marqueeRef.current = { sx, sy, mx: sx, my: sy };
+          setMarqueeRect({ sx, sy, mx: sx, my: sy });
+        } else if (e.button === 1) {
+          e.preventDefault();
           dragRef.current = { kind: "pan", sx: e.clientX, sy: e.clientY, vx: view.x, vy: view.y };
-          setSelectedNodeIds([]); setSelectedEdgeId(null); setMenuNode(null); setPending(null); setColorMenu(null);
         }
       }}
       onDoubleClick={(e) => {
@@ -406,6 +491,26 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
           />
         ))}
       </div>
+
+      {/* ---------- Marquee de selección ---------- */}
+      {marqueeRect && (() => {
+        const l = Math.min(marqueeRect.sx, marqueeRect.mx);
+        const t = Math.min(marqueeRect.sy, marqueeRect.my);
+        const w = Math.abs(marqueeRect.mx - marqueeRect.sx);
+        const h = Math.abs(marqueeRect.my - marqueeRect.sy);
+        if (w < 3 && h < 3) return null;
+        return (
+          <div
+            className="absolute z-20 pointer-events-none"
+            style={{
+              left: l, top: t, width: w, height: h,
+              background: "rgba(99,102,241,0.08)",
+              border: "1.5px solid rgba(99,102,241,0.5)",
+              borderRadius: 4,
+            }}
+          />
+        );
+      })()}
 
       {/* ---------- Modal de tags ---------- */}
       {tagsNodeObj && (
@@ -512,6 +617,9 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
         </ToolBtn>
         <ToolBtn T={T} label="Tema" onClick={onToggleTheme}>
           {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
+        </ToolBtn>
+        <ToolBtn T={T} testId="snap-toggle" label={snapEnabled ? "Snap: activado" : "Snap: desactivado"} onClick={() => setSnapEnabled((v) => !v)}>
+          <Magnet size={16} />
         </ToolBtn>
         <Sep T={T} />
         <ToolBtn T={T} label="Alejar" onClick={() => setView((v) => ({ ...v, z: Math.max(0.25, v.z * 0.9) }))}><ZoomOut size={16} /></ToolBtn>
@@ -649,7 +757,8 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
       {showHelp && (
         <div className="absolute app-safe-bottom-left text-[11px] leading-relaxed max-w-xs" style={{ color: T.sub }}>
           Doble clic en el lienzo: nuevo nodo · Clic en un punto de color: iniciar/terminar conexión ·
-          Botón derecho en un punto: elegir color · Rueda: zoom · Arrastrar fondo: mover lienzo
+          Botón derecho en un punto: elegir color · Rueda: zoom · Arrastrar fondo: selección múltiple ·
+          Botón central: mover lienzo · Snap magnético al arrastrar nodos
         </div>
       )}
     </div>
