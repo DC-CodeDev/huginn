@@ -111,7 +111,7 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
   const [snapEnabled, setSnapEnabled] = useState(true);
   const snapEnabledRef = useRef(snapEnabled);
   snapEnabledRef.current = snapEnabled;
-  const snapTargetRef = useRef<{ sx: number; sy: number; axis: "x" | "y" } | null>(null);
+  const snapTargetRef = useRef<{ axis: "x" | "y"; value: number } | null>(null);
 
   const toWorld = useCallback((sx: number, sy: number) => {
     const rect = canvasRef.current!.getBoundingClientRect();
@@ -160,6 +160,8 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
         if (snapEnabledRef.current) {
           const snapped = applySnap(d.id, nx, ny);
           if (snapped) { nx = snapped.x; ny = snapped.y; }
+        } else {
+          snapTargetRef.current = null;
         }
         setNodes((ns) => ns.map((n) => (n.id === d.id ? { ...n, x: nx, y: ny } : n)));
       } else if (d.kind === "group") {
@@ -195,6 +197,7 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
         return;
       }
       const d = dragRef.current;
+      if (d?.kind === "node") snapTargetRef.current = null;
       if (d?.kind === "group" && !groupDragMovedRef.current) {
         // El usuario hizo click (sin arrastrar) sobre un nodo del grupo → reemplazar selección
         setSelectedNodeIds([d.clickedId]);
@@ -330,14 +333,17 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
   };
 
   const applySnap = (draggedId: string, px: number, py: number): { x: number; y: number } | null => {
-    // Histéresis por eje primario: si ya estamos enganchados a un snap
-    // horizontal, solo medir distancia en X; si vertical, solo en Y.
-    // Esto evita que un movimiento en el eje perpendicular libere el snap
-    // y dispare un reenganche violento a otro nodo.
+    // La histéresis fija únicamente el eje enganchado; el eje perpendicular
+    // conserva la posición libre que viene del mouse.
     const cur = snapTargetRef.current;
     if (cur) {
-      const d = cur.axis === "x" ? Math.abs(px - cur.sx) : Math.abs(py - cur.sy);
-      if (d < SNAP_EXIT_THRESHOLD) return { x: cur.sx, y: cur.sy };
+      if (cur.axis === "x") {
+        const d = Math.abs(px - cur.value);
+        if (d < SNAP_EXIT_THRESHOLD) return { x: cur.value, y: py };
+      } else {
+        const d = Math.abs(py - cur.value);
+        if (d < SNAP_EXIT_THRESHOLD) return { x: px, y: cur.value };
+      }
     }
     snapTargetRef.current = null;
 
@@ -345,7 +351,7 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
     if (!dragged) return null;
     const dragH = getNodeWorldHeight(draggedId);
     const others = nodesRef.current.filter((n) => n.id !== draggedId);
-    let best: { x: number; y: number; dist: number; axis: "x" | "y" } | null = null;
+    let best: { axis: "x" | "y"; value: number; dist: number } | null = null;
 
     for (const other of others) {
       const otherH = getNodeWorldHeight(other.id);
@@ -353,27 +359,27 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
       const txr = other.x + other.w + SNAP_DISTANCE;
       const dxr = Math.abs(px - txr);
       if (px < txr + 2 && dxr < SNAP_ENTRY_THRESHOLD && (!best || dxr < best.dist))
-        best = { x: txr, y: other.y, dist: dxr, axis: "x" };
+        best = { axis: "x", value: txr, dist: dxr };
       // Izquierda — solo si el nodo arrastrado está a la derecha del destino
       const txl = other.x - dragged.w - SNAP_DISTANCE;
       const dxl = Math.abs(px - txl);
       if (px > txl - 2 && dxl < SNAP_ENTRY_THRESHOLD && (!best || dxl < best.dist))
-        best = { x: txl, y: other.y, dist: dxl, axis: "x" };
+        best = { axis: "x", value: txl, dist: dxl };
       // Abajo — solo si el nodo arrastrado está arriba del destino
       const tyd = other.y + otherH + SNAP_DISTANCE;
       const dyd = Math.abs(py - tyd);
       if (py < tyd + 2 && dyd < SNAP_ENTRY_THRESHOLD && (!best || dyd < best.dist))
-        best = { x: other.x, y: tyd, dist: dyd, axis: "y" };
+        best = { axis: "y", value: tyd, dist: dyd };
       // Arriba — solo si el nodo arrastrado está abajo del destino
       const tyu = other.y - dragH - SNAP_DISTANCE;
       const dyu = Math.abs(py - tyu);
       if (py > tyu - 2 && dyu < SNAP_ENTRY_THRESHOLD && (!best || dyu < best.dist))
-        best = { x: other.x, y: tyu, dist: dyu, axis: "y" };
+        best = { axis: "y", value: tyu, dist: dyu };
     }
 
     if (best) {
-      snapTargetRef.current = { sx: best.x, sy: best.y, axis: best.axis };
-      return { x: best.x, y: best.y };
+      snapTargetRef.current = { axis: best.axis, value: best.value };
+      return best.axis === "x" ? { x: best.value, y: py } : { x: px, y: best.value };
     }
     return null;
   };
@@ -497,6 +503,7 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
                 groupDragMovedRef.current = false;
                 dragRef.current = { kind: "group", ids: [...selectedNodeIds], origins, wx: w.x, wy: w.y, clickedId: node.id };
               } else {
+                snapTargetRef.current = null;
                 dragRef.current = { kind: "node", id: node.id, ox: w.x - node.x, oy: w.y - node.y };
                 handleNodeClick(node.id, e);
               }
@@ -641,7 +648,7 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
         <ToolBtn T={T} label="Tema" onClick={onToggleTheme}>
           {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
         </ToolBtn>
-        <ToolBtn T={T} testId="snap-toggle" label={snapEnabled ? "Snap: activado" : "Snap: desactivado"} onClick={() => { const next = !snapEnabled; snapEnabledRef.current = next; setSnapEnabled(next); }}>
+        <ToolBtn T={T} testId="snap-toggle" label={snapEnabled ? "Snap: activado" : "Snap: desactivado"} onClick={() => { const next = !snapEnabled; if (!next) snapTargetRef.current = null; snapEnabledRef.current = next; setSnapEnabled(next); }}>
           <span style={{ opacity: snapEnabled ? 1 : 0.35 }}><Magnet size={16} /></span>
         </ToolBtn>
         <Sep T={T} />
