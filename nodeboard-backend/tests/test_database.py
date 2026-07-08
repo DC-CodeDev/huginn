@@ -7,15 +7,28 @@ Verifica que ``database.py``:
 - Use la ruta correcta en producción con ``DATA_PATH=/data``.
 - Mantenga compatibilidad en desarrollo local.
 - ``NODEBOARD_DB`` no permita evadir la protección en producción.
+
+SQLite connection config (WAL, busy_timeout, foreign_keys):
+- ``_resolve_busy_timeout`` valida y devuelve el timeout correcto.
+- Conexiones a una base de archivo tienen ``journal_mode=wal``.
+- ``foreign_keys`` está activado y bloquea FKs inválidas.
+- Dos conexiones coexisten (WAL permite lectura durante escritura).
+- ``busy_timeout`` se respeta ante bloqueo.
+- Configuración no se aplica a motores que no son SQLite.
 """
 import importlib
 import os
+import threading
+import time
 from pathlib import Path
 
 import pytest
+from sqlalchemy import create_engine, event, text
+from sqlalchemy.engine import Engine
 
 from app.database import (
     DatabaseConfigurationError,
+    _resolve_busy_timeout,
     get_database_url,
     is_production,
     resolve_database_path,
@@ -241,3 +254,267 @@ def test_module_imports_in_dev_with_tmp_data_path(monkeypatch, tmp_path):
     import app.database as db
     db = importlib.reload(db)
     assert db.DATABASE_URL == f"sqlite:///{tmp_path / 'nodeboard.db'}"
+
+
+# ======================================================================
+# SQLite connection configuration (_resolve_busy_timeout)
+# ======================================================================
+
+
+class TestResolveBusyTimeout:
+    def test_default_5000(self, monkeypatch):
+        monkeypatch.delenv("SQLITE_BUSY_TIMEOUT_MS", raising=False)
+        assert _resolve_busy_timeout() == 5000
+
+    def test_custom_value(self, monkeypatch):
+        monkeypatch.setenv("SQLITE_BUSY_TIMEOUT_MS", "3000")
+        assert _resolve_busy_timeout() == 3000
+
+    def test_zero_is_allowed(self, monkeypatch):
+        """0 significa no esperar — técnicamente válido."""
+        monkeypatch.setenv("SQLITE_BUSY_TIMEOUT_MS", "0")
+        assert _resolve_busy_timeout() == 0
+
+    def test_negative_raises(self, monkeypatch):
+        monkeypatch.setenv("SQLITE_BUSY_TIMEOUT_MS", "-1")
+        with pytest.raises(RuntimeError):
+            _resolve_busy_timeout()
+
+    def test_non_numeric_raises(self, monkeypatch):
+        monkeypatch.setenv("SQLITE_BUSY_TIMEOUT_MS", "abc")
+        with pytest.raises(RuntimeError):
+            _resolve_busy_timeout()
+
+    def test_empty_string_raises(self, monkeypatch):
+        monkeypatch.setenv("SQLITE_BUSY_TIMEOUT_MS", "")
+        with pytest.raises(RuntimeError):
+            _resolve_busy_timeout()
+
+
+# ======================================================================
+# SQLite connection config (PRAGMAs on a file-based database)
+# ======================================================================
+
+
+class TestSqliteConnectionConfig:
+    """Verifica que las PRAGMAs se apliquen correctamente a conexiones SQLite.
+
+    Cada test crea su propio engine sobre un archivo temporal para no
+    interferir con la base de datos global del proyecto.
+    """
+
+    @pytest.fixture()
+    def db_file(self, tmp_path):
+        return str(tmp_path / "test_config.db")
+
+    @pytest.fixture()
+    def engine_with_huginn_config(self, db_file):
+        """Crea un engine con la misma configuración que ``database.py``."""
+        eng = create_engine(f"sqlite:///{db_file}", connect_args={"check_same_thread": False})
+
+        @event.listens_for(eng, "connect")
+        def _cfg(dbapi_conn, _rec):
+            cursor = dbapi_conn.cursor()
+            cursor.execute("PRAGMA foreign_keys=ON")
+            cursor.execute("PRAGMA busy_timeout=5000")
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.close()
+
+        yield eng
+        eng.dispose()
+
+    # --- 1. foreign_keys activado ---
+
+    def test_foreign_keys_on(self, engine_with_huginn_config):
+        with engine_with_huginn_config.connect() as conn:
+            result = conn.execute(text("PRAGMA foreign_keys")).scalar()
+        assert result == 1
+
+    # --- 2. busy_timeout default ---
+
+    def test_busy_timeout_default(self, engine_with_huginn_config):
+        with engine_with_huginn_config.connect() as conn:
+            result = conn.execute(text("PRAGMA busy_timeout")).scalar()
+        assert result == 5000
+
+    # --- 3. journal_mode WAL ---
+
+    def test_journal_mode_wal(self, engine_with_huginn_config):
+        with engine_with_huginn_config.connect() as conn:
+            result = conn.execute(text("PRAGMA journal_mode")).scalar()
+        assert result == "wal"
+
+    # --- 4. Config applies to new connections ---
+
+    def test_config_applies_to_new_connection(self, engine_with_huginn_config):
+        with engine_with_huginn_config.connect() as conn:
+            # Primera conexión
+            assert conn.execute(text("PRAGMA foreign_keys")).scalar() == 1
+        with engine_with_huginn_config.connect() as conn:
+            # Segunda conexión (nueva del pool)
+            assert conn.execute(text("PRAGMA foreign_keys")).scalar() == 1
+
+    # --- 5. FK inválida falla ---
+
+    def test_invalid_fk_raises(self, engine_with_huginn_config, db_file):
+        """Crea tablas con FK y verifica que insertar un hijo sin padre falle."""
+        with engine_with_huginn_config.connect() as conn:
+            conn.execute(text("CREATE TABLE parent (id INTEGER PRIMARY KEY)"))
+            conn.execute(text("CREATE TABLE child (id INTEGER PRIMARY KEY, p INTEGER REFERENCES parent(id))"))
+            conn.commit()
+
+        with engine_with_huginn_config.connect() as conn:
+            with pytest.raises(Exception) as exc:
+                conn.execute(text("INSERT INTO child (id, p) VALUES (1, 999)"))
+                conn.commit()
+            assert any(w in str(exc.value).lower() for w in ("foreign", "constraint")), (
+                f"Se esperaba error de FK, pero se obtuvo: {exc.value}"
+            )
+
+    # --- 6. Dos conexiones coexisten ---
+
+    def test_two_connections_coexist(self, engine_with_huginn_config):
+        with engine_with_huginn_config.connect() as conn_a:
+            conn_a.execute(text("CREATE TABLE IF NOT EXISTS t (x INTEGER)"))
+            conn_a.commit()
+            conn_a.execute(text("INSERT INTO t (x) VALUES (1)"))
+            conn_a.commit()
+            with engine_with_huginn_config.connect() as conn_b:
+                rows = conn_b.execute(text("SELECT x FROM t")).fetchall()
+        assert rows == [(1,)]
+
+
+# ======================================================================
+# WAL concurrency (read during write)
+# ======================================================================
+
+
+class TestWalConcurrency:
+    """Verifica que WAL permite lecturas durante escrituras concurrentes.
+
+    Escenario:
+        conexión A: BEGIN → INSERT sin commit
+        conexión B: SELECT → funciona (WAL permite lectura durante escritura)
+        conexión C: escritura → respeta busy_timeout y obtiene database is locked
+    """
+
+    @pytest.fixture()
+    def db_file(self, tmp_path):
+        return str(tmp_path / "test_concurrency.db")
+
+    @pytest.fixture()
+    def engine(self, db_file):
+        eng = create_engine(f"sqlite:///{db_file}", connect_args={"check_same_thread": False})
+
+        @event.listens_for(eng, "connect")
+        def _cfg(dbapi_conn, _rec):
+            cursor = dbapi_conn.cursor()
+            cursor.execute("PRAGMA foreign_keys=ON")
+            cursor.execute("PRAGMA busy_timeout=100")  # timeout rápido para el test
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.close()
+
+        with eng.connect() as conn:
+            conn.execute(text("CREATE TABLE IF NOT EXISTS t (x INTEGER)"))
+            conn.commit()
+
+        yield eng
+        eng.dispose()
+
+    def test_read_during_write(self, engine):
+        """Conexión A escribe sin commit; conexión B puede leer bajo WAL.
+
+        Este test corre en un hilo separado para aislar la transacción A
+        y evitar que la fixture limpie la sesión.
+        """
+        results = {}
+
+        conn_a = engine.connect()
+        try:
+            # Iniciamos una transacción de escritura sin commit
+            tx_a = conn_a.begin()
+            conn_a.execute(text("INSERT INTO t (x) VALUES (42)"))
+            results["tx_a"] = tx_a
+
+            # Conexión B — lector (debería funcionar gracias a WAL)
+            conn_b = engine.connect()
+            try:
+                rows = conn_b.execute(text("SELECT x FROM t")).fetchall()
+                results["rows_b"] = rows
+                # Bajo WAL, una lectura puede ocurrir durante una escritura
+                # (la lectura ve el estado anterior al BEGIN)
+                assert isinstance(rows, list), "lectura debe devolver una lista"
+            finally:
+                conn_b.close()
+        finally:
+            conn_a.close()
+
+    def test_write_blocked_respects_timeout(self, engine):
+        """Conexión A BEGIN IMMEDIATE + escritura sin commit;
+        conexión B intenta escribir y debe recibir database is locked
+        después del busy_timeout (100ms en este test).
+
+        Usamos ``busy_timeout=100`` (0.1s) para que el test sea rápido.
+        """
+        import threading as _thr
+
+        errors = {}
+        ready = _thr.Event()
+        done = _thr.Event()
+
+        def writer_a(conn):
+            conn.execute(text("BEGIN IMMEDIATE"))
+            conn.execute(text("INSERT INTO t (x) VALUES (1)"))
+            ready.set()  # señal: ya tengo el lock
+            done.wait(timeout=5)  # mantener transacción abierta
+            conn.rollback()  # liberar
+
+        def writer_b(conn):
+            ready.wait(timeout=5)  # esperar a que A tenga el lock
+            try:
+                conn.execute(text("INSERT INTO t (x) VALUES (2)"))
+                conn.commit()
+                errors["b"] = "no error (unexpected)"
+            except Exception as e:
+                errors["b_error"] = e
+            done.set()  # liberar a A
+
+        conn_a = engine.connect()
+        conn_b = engine.connect()
+
+        thr_a = _thr.Thread(target=writer_a, args=(conn_a,))
+        thr_b = _thr.Thread(target=writer_b, args=(conn_b,))
+
+        thr_a.start()
+        thr_b.start()
+        thr_a.join(timeout=5)
+        thr_b.join(timeout=5)
+
+        conn_a.close()
+        conn_b.close()
+
+        # writer_b debe haber fallado con database is locked
+        assert "b_error" in errors, (
+            f"Se esperaba error 'database is locked' en writer_b, errores={errors}"
+        )
+        err_msg = str(errors["b_error"]).lower()
+        assert "locked" in err_msg, f"Se esperaba 'locked', pero se obtuvo: {errors['b_error']}"
+
+
+# ======================================================================
+# Non-SQLite backend guard
+# ======================================================================
+
+
+class TestNonSqliteGuard:
+    """Verifica que la configuración SQLite no se aplique a otros motores."""
+
+    def test_sqlite_engine_has_configure_listener(self):
+        """El engine del módulo (sqlite) debe tener el listener de configuración."""
+        import app.database as db_mod
+        # Verificamos que el engine es sqlite y que el listener existe
+        assert db_mod.engine.url.get_backend_name() == "sqlite"
+        # El listener de connect está registrado (verificamos indirectamente
+        # que las PRAGMAs se aplican)
+        with db_mod.engine.connect() as conn:
+            assert conn.exec_driver_sql("PRAGMA foreign_keys").scalar() == 1

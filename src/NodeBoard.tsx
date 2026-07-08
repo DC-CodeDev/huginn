@@ -51,7 +51,8 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
   const [nodes, setNodes] = useState<Node[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
   const [boardName, setBoardName] = useState("");
-  const { status } = useBoardPersistence({ boardId, nodes, edges, setNodes, setEdges, boardName });
+  const { status, boardVersion, conflict, reloadBoardFromServer } = useBoardPersistence({ boardId, nodes, edges, setNodes, setEdges, boardName });
+  const [reloadConfirm, setReloadConfirm] = useState(false);
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [pending, setPending] = useState<Pending>(null);     // conexión en curso
@@ -573,6 +574,75 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
           onCloseProfile={onBack}
           onClose={() => setProfileOpen(false)}
         />
+      )}
+
+      {/* ---------- Conflicto de versión ---------- */}
+      {conflict && !reloadConfirm && (
+        <div
+          className="absolute app-safe-top-right flex flex-col items-end gap-2 z-40 max-w-xs"
+          style={{ top: "calc(var(--safe-top, 0px) + 8px)" }}
+        >
+          <div
+            className="rounded-2xl px-4 py-3 text-sm shadow-lg"
+            style={{ background: "rgba(248,113,113,.12)", border: "1px solid rgba(248,113,113,.35)", color: "#F87171" }}
+          >
+            <div className="font-semibold mb-1">Cambios externos detectados</div>
+            <div className="text-[13px]" style={{ opacity: 0.85 }}>
+              Este board fue modificado desde otro cliente.
+            </div>
+            {conflict && (
+              <div className="text-[11px] mt-1.5" style={{ opacity: 0.6 }}>
+                Versión local esperada: {conflict.expectedVersion} · Versión actual del servidor: {conflict.currentVersion}
+              </div>
+            )}
+            <button
+              className="mt-2 px-3 py-1.5 rounded-xl text-xs font-medium transition-colors"
+              style={{ background: "#F87171", color: "#fff" }}
+              onClick={() => setReloadConfirm(true)}
+            >
+              Recargar board
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ---------- Confirmación de recarga ---------- */}
+      {reloadConfirm && (
+        <div
+          className="absolute inset-0 z-50 flex items-center justify-center"
+          style={{ background: "rgba(0,0,0,.5)" }}
+          onClick={() => setReloadConfirm(false)}
+        >
+          <div
+            className="rounded-2xl px-6 py-5 shadow-xl max-w-sm w-full mx-4"
+            style={{ background: T.card, border: `1px solid ${T.cardBorder}` }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="font-semibold mb-2" style={{ color: T.text }}>¿Recargar board?</div>
+            <div className="text-sm mb-4" style={{ color: T.sub }}>
+              Al recargar se descartarán los cambios locales no guardados.
+            </div>
+            <div className="flex gap-2 justify-end">
+              <button
+                className="px-4 py-2 rounded-xl text-sm font-medium"
+                style={{ background: T.field, border: `1px solid ${T.fieldBorder}`, color: T.text }}
+                onClick={() => setReloadConfirm(false)}
+              >
+                Cancelar
+              </button>
+              <button
+                className="px-4 py-2 rounded-xl text-sm font-medium"
+                style={{ background: "#F87171", color: "#fff" }}
+                onClick={async () => {
+                  const ok = await reloadBoardFromServer();
+                  if (ok) setReloadConfirm(false);
+                }}
+              >
+                Recargar
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ---------- Ayuda ---------- */}

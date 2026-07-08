@@ -8,3 +8,4 @@ alembic>=1.13
 google-auth>=2.29
 requests>=2.31
 python-dotenv>=1.0
+mcp>=1.28.0,<1.29.0

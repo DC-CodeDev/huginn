@@ -40,11 +40,15 @@ from app.schemas import (
     BoardCreate,
     BoardRename,
     BoardStateSave,
+    EdgeCreateRequest,
     EdgeSchema,
     EdgeUpdate,
+    EdgeUpdateRequest,
     FolderCreate,
+    NodeCreateRequest,
     NodeSchema,
     NodeUpdate,
+    NodeUpdateRequest,
     PortRef,
     StudioCreate,
 )
@@ -90,14 +94,15 @@ def _full_scenario(db, user):
     sid = create_studio(StudioCreate(name="S", color="azul"), db, current_user=user).id
     fid = create_folder(FolderCreate(name="F", studio_id=sid), db, current_user=user).id
     bid = create_board(BoardCreate(name="B", studio_id=sid, folder_id=fid), db, current_user=user).id
-    n1 = create_node(bid, NodeSchema(id="n1"), db, current_user=user)
-    n2 = create_node(bid, NodeSchema(id="n2"), db, current_user=user)
+    n1 = create_node(bid, NodeCreateRequest(id="n1", expected_version=1), db, current_user=user)
+    n2 = create_node(bid, NodeCreateRequest(id="n2", expected_version=2), db, current_user=user)
     e1 = create_edge(
         bid,
-        EdgeSchema(
+        EdgeCreateRequest(
             id="e1",
             from_=PortRef(nodeId="n1", portId="p"),
             to=PortRef(nodeId="n2", portId="p"),
+            expected_version=3,
         ),
         db,
         current_user=user,
@@ -189,13 +194,13 @@ def test_create_board_in_other_studio_404(db, users):
 def test_rename_other_board_404(db, users):
     a, b = users
     r = _full_scenario(db, a)
-    _assert_404(rename_board, r["bid"], BoardRename(name="Hackeado"), db, current_user=b)
+    _assert_404(rename_board, r["bid"], BoardRename(name="Hackeado", expected_version=1), db, current_user=b)
 
 
 def test_delete_other_board_404(db, users):
     a, b = users
     r = _full_scenario(db, a)
-    _assert_404(delete_board, r["bid"], db, current_user=b)
+    _assert_404(delete_board, r["bid"], 1, db, current_user=b)
 
 
 def test_save_board_state_other_board_404(db, users):
@@ -204,7 +209,7 @@ def test_save_board_state_other_board_404(db, users):
     _assert_404(
         save_board_state,
         r["bid"],
-        BoardStateSave(nodes=[], edges=[]),
+        BoardStateSave(nodes=[], edges=[], expected_version=1),
         db,
         current_user=b,
     )
@@ -222,19 +227,19 @@ def test_board_tags_other_board_404(db, users):
 def test_create_node_other_board_404(db, users):
     a, b = users
     r = _full_scenario(db, a)
-    _assert_404(create_node, r["bid"], NodeSchema(id="x"), db, current_user=b)
+    _assert_404(create_node, r["bid"], NodeCreateRequest(id="x", expected_version=1), db, current_user=b)
 
 
 def test_update_other_node_404(db, users):
     a, b = users
     r = _full_scenario(db, a)
-    _assert_404(update_node, r["n1"].id, NodeUpdate(title="X"), db, current_user=b)
+    _assert_404(update_node, r["n1"].id, NodeUpdateRequest(title="X", expected_version=1), db, current_user=b)
 
 
 def test_delete_other_node_404(db, users):
     a, b = users
     r = _full_scenario(db, a)
-    _assert_404(delete_node, r["n1"].id, db, current_user=b)
+    _assert_404(delete_node, r["n1"].id, 1, db, current_user=b)
 
 
 # ---------------------------------------------------------------- Edges
@@ -246,9 +251,11 @@ def test_create_edge_other_board_404(db, users):
     _assert_404(
         create_edge,
         r["bid"],
-        EdgeSchema(
+        EdgeCreateRequest(
+            id="x",
             from_=PortRef(nodeId="n1", portId="p"),
             to=PortRef(nodeId="n2", portId="p"),
+            expected_version=1,
         ),
         db,
         current_user=b,
@@ -258,10 +265,10 @@ def test_create_edge_other_board_404(db, users):
 def test_update_other_edge_404(db, users):
     a, b = users
     r = _full_scenario(db, a)
-    _assert_404(update_edge, r["e1"].id, EdgeUpdate(label="hack"), db, current_user=b)
+    _assert_404(update_edge, r["e1"].id, EdgeUpdateRequest(label="hack", expected_version=1), db, current_user=b)
 
 
 def test_delete_other_edge_404(db, users):
     a, b = users
     r = _full_scenario(db, a)
-    _assert_404(delete_edge, r["e1"].id, db, current_user=b)
+    _assert_404(delete_edge, r["e1"].id, 1, db, current_user=b)

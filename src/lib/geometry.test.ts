@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, it, expect } from "vitest";
 import { portPos, edgePath, PORT_Y0, PORT_DY } from "./geometry";
 import { PORT_COLORS, type Node, type Port } from "../types";

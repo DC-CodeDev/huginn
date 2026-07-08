@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { ArrowLeft, Plus, Loader2, FolderIcon, FileText, Ellipsis, Trash2 } from "lucide-react";
 import { api } from "../api";
+import { renameBoard as renameBoardAction, deleteBoard as deleteBoardAction } from "../lib/board-actions";
 import type { Studio, Folder, BoardSummary } from "../types";
 import { CreateFolderModal } from "./CreateFolderModal";
 import { ConfirmDeleteModal } from "./ConfirmDeleteModal";
@@ -66,11 +67,13 @@ export function StudioView({ studioId, onBack, onFolderClick, onBoardClick }: St
   const doRename = async (id: string) => {
     const trimmed = renameValue.trim();
     if (!trimmed) { setRenameBoardId(null); return; }
-    try {
-      await api.renameBoard(id, trimmed);
-      setBoards((prev) => prev ? prev.map((b) => b.id === id ? { ...b, name: trimmed } : b) : prev);
-    } catch (e) {
-      console.error("Error al renombrar board", e);
+    const result = await renameBoardAction(id, trimmed, boards);
+    if (result.ok) {
+      setBoards((prev) => prev ? prev.map((b) => b.id === id ? result.board : b) : prev);
+    } else if (result.reason === "conflict") {
+      console.error("Conflicto al renombrar: el board fue modificado por otro cliente");
+    } else {
+      console.error("Error al renombrar board", result.reason === "no-version" ? "sin versión" : result.error);
     }
     setRenameBoardId(null);
   };
@@ -85,6 +88,7 @@ export function StudioView({ studioId, onBack, onFolderClick, onBoardClick }: St
     setBoards((prev) => [{
       id: board.id,
       name: board.name,
+      version: board.version,
       created_at: "",
       updated_at: new Date().toISOString(),
       node_count: 0,
@@ -97,8 +101,21 @@ export function StudioView({ studioId, onBack, onFolderClick, onBoardClick }: St
     if (!deleteTarget) return;
     try {
       if (deleteTarget.kind === "board") {
-        await api.deleteBoard(deleteTarget.id);
-        setBoards((prev) => prev ? prev.filter((b) => b.id !== deleteTarget.id) : prev);
+        const result = await deleteBoardAction(deleteTarget.id, boards);
+        if (result.ok) {
+          setBoards((prev) => prev ? prev.filter((b) => b.id !== deleteTarget.id) : prev);
+        } else if (result.reason === "conflict") {
+          console.error("Conflicto al eliminar: el board fue modificado por otro cliente");
+          // Recargar listados
+          try {
+            const data = await api.getStudioBoards(studioId);
+            const all = [...data.root_boards, ...data.folder_boards];
+            all.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
+            setBoards(all);
+          } catch { /* ignorar */ }
+        } else if (result.reason !== "no-version") {
+          console.error("Error al eliminar", result.error);
+        }
       } else {
         await api.deleteFolder(deleteTarget.id);
         setFolders((prev) => prev ? prev.filter((f) => f.id !== deleteTarget.id) : prev);

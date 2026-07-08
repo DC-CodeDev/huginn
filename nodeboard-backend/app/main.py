@@ -52,8 +52,7 @@ from fastapi import Cookie, Depends, FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.datastructures import MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
-from sqlalchemy import event, func, or_, select
-from sqlalchemy.engine import Engine
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 # Cargar variables de entorno desde .env antes de cualquier otra cosa
@@ -63,15 +62,52 @@ if _env_path.exists():
 
 from . import auth, models, schemas
 from .database import engine as db_engine, get_db
-
-# SQLite no aplica ON DELETE CASCADE si no se activan las foreign keys
-@event.listens_for(Engine, "connect")
-def _enable_sqlite_fk(dbapi_conn, _):
-    try:
-        dbapi_conn.execute("PRAGMA foreign_keys=ON")
-    except Exception:
-        pass
-
+from .mcp.context import get_mcp_context as _get_mcp_context
+from .services.authorization import (
+    get_owned_board,
+)
+from .services.board_state import (
+    save_board_state as _board_state_service_save,
+)
+from .services.boards import (
+    create_board as _board_service_create,
+    delete_board as _board_service_delete,
+    get_board as _board_service_get,
+    list_boards as _board_service_list_all,
+    list_folder_boards as _board_service_list_folder,
+    list_studio_boards as _board_service_list_studio,
+    rename_board as _board_service_rename,
+)
+from .services.tags import (
+    list_board_tags as _tags_service_list,
+)
+from .services.errors import ResourceNotFound, ValidationFailure, VersionConflict
+from .services.folders import (
+    create_folder as _folder_service_create,
+    delete_folder as _folder_service_delete,
+    list_folders as _folder_service_list,
+)
+from .services.nodes import (
+    create_node as _node_service_create,
+    delete_node as _node_service_delete,
+    update_node as _node_service_update,
+)
+from .services.edges import (
+    create_edge as _edge_service_create,
+    delete_edge as _edge_service_delete,
+    update_edge as _edge_service_update,
+)
+from .services.studios import (
+    create_studio as _studio_service_create,
+    delete_studio as _studio_service_delete,
+    list_studios as _studio_service_list,
+)
+from .services.mcp_tokens import (
+    create_mcp_token as _mcp_token_service_create,
+    list_mcp_tokens as _mcp_token_service_list,
+    revoke_mcp_token as _mcp_token_service_revoke,
+    delete_mcp_token as _mcp_token_service_delete,
+)
 
 _ALEMBIC_CFG = os.path.join(os.path.dirname(__file__), "..", "alembic.ini")
 
@@ -97,7 +133,14 @@ mimetypes.add_type("application/javascript", ".js")
 async def lifespan(_: FastAPI):
     cfg = Config(_ALEMBIC_CFG)
     command.upgrade(cfg, "head")
-    yield
+
+    mcp_enabled = _is_true(os.getenv("MCP_ENABLED"))
+    if mcp_enabled:
+        from .mcp.server import mcp_lifespan
+        async with mcp_lifespan():
+            yield
+    else:
+        yield
 
 
 app = FastAPI(title="Nodeboard API", version="1.0.0", lifespan=lifespan)
@@ -268,110 +311,33 @@ def _uid() -> str:
     return uuid.uuid4().hex
 
 
-def _get_board(db: Session, board_id: str, user: models.User) -> models.Board:
-    """Busca un Board asegurando que pertenece al usuario via Studio.user_id."""
-    board = (
-        db.execute(
-            select(models.Board)
-            .join(models.Studio, models.Board.studio_id == models.Studio.id)
-            .where(models.Board.id == board_id, models.Studio.user_id == user.id)
+def _or_404(fn, *args, **kwargs):
+    """Call a service authorization function and translate ResourceNotFound to HTTP 404."""
+    try:
+        return fn(*args, **kwargs)
+    except ResourceNotFound as e:
+        raise HTTPException(404, e.message or "Recurso no encontrado")
+
+
+def _handle_domain(fn, *args, **kwargs):
+    """Call a service function and translate domain errors to HTTP responses."""
+    try:
+        return fn(*args, **kwargs)
+    except ResourceNotFound as e:
+        raise HTTPException(404, e.message or "Recurso no encontrado")
+    except ValidationFailure as e:
+        raise HTTPException(422, e.message or "Error de validación")
+    except VersionConflict as e:
+        raise HTTPException(
+            409,
+            detail={
+                "code": "VERSION_CONFLICT",
+                "message": e.message,
+                "board_id": e.board_id,
+                "expected_version": e.expected_version,
+                "current_version": e.current_version,
+            },
         )
-        .scalars()
-        .first()
-    )
-    if not board:
-        raise HTTPException(404, "Tablero no encontrado")
-    return board
-
-
-def _get_studio(db: Session, studio_id: str, user: models.User) -> models.Studio:
-    """Busca un Studio asegurando que pertenece al usuario."""
-    studio = (
-        db.execute(
-            select(models.Studio).where(
-                models.Studio.id == studio_id, models.Studio.user_id == user.id
-            )
-        )
-        .scalars()
-        .first()
-    )
-    if not studio:
-        raise HTTPException(404, "Studio no encontrado")
-    return studio
-
-
-def _get_folder(db: Session, folder_id: str, user: models.User) -> models.Folder:
-    """Busca un Folder asegurando que pertenece al usuario via Studio.user_id."""
-    folder = (
-        db.execute(
-            select(models.Folder)
-            .join(models.Studio, models.Folder.studio_id == models.Studio.id)
-            .where(models.Folder.id == folder_id, models.Studio.user_id == user.id)
-        )
-        .scalars()
-        .first()
-    )
-    if not folder:
-        raise HTTPException(404, "Carpeta no encontrada")
-    return folder
-
-
-def _get_owned_node(db: Session, node_id: str, user: models.User) -> models.Node:
-    """Busca un Node asegurando que pertenece al usuario via cadena de FKs."""
-    node = (
-        db.execute(
-            select(models.Node)
-            .join(models.Board, models.Node.board_id == models.Board.id)
-            .join(models.Studio, models.Board.studio_id == models.Studio.id)
-            .where(models.Node.id == node_id, models.Studio.user_id == user.id)
-        )
-        .scalars()
-        .first()
-    )
-    if not node:
-        raise HTTPException(404, "Nodo no encontrado")
-    return node
-
-
-def _get_owned_edge(db: Session, edge_id: str, user: models.User) -> models.Edge:
-    """Busca un Edge asegurando que pertenece al usuario via cadena de FKs."""
-    edge = (
-        db.execute(
-            select(models.Edge)
-            .join(models.Board, models.Edge.board_id == models.Board.id)
-            .join(models.Studio, models.Board.studio_id == models.Studio.id)
-            .where(models.Edge.id == edge_id, models.Studio.user_id == user.id)
-        )
-        .scalars()
-        .first()
-    )
-    if not edge:
-        raise HTTPException(404, "Arista no encontrada")
-    return edge
-
-
-def _node_to_schema(n: models.Node) -> schemas.NodeSchema:
-    return schemas.NodeSchema.model_validate(n)
-
-
-def _edge_to_schema(e: models.Edge) -> schemas.EdgeSchema:
-    return schemas.EdgeSchema(
-        id=e.id,
-        **{"from": {"nodeId": e.from_node, "portId": e.from_port}},
-        to={"nodeId": e.to_node, "portId": e.to_port},
-        curved=e.curved,
-        label=e.label,
-    )
-
-
-def _board_state(board: models.Board) -> schemas.BoardState:
-    return schemas.BoardState(
-        id=board.id,
-        name=board.name,
-        updated_at=board.updated_at,
-        nodes=[_node_to_schema(n) for n in board.nodes],
-        edges=[_edge_to_schema(e) for e in board.edges],
-    )
 
 
 # ------------------------------------------------------------------ auth endpoints
@@ -444,13 +410,7 @@ def create_studio(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    studio = models.Studio(
-        id=_uid(), name=payload.name, color=payload.color, user_id=current_user.id
-    )
-    db.add(studio)
-    db.commit()
-    db.refresh(studio)
-    return studio
+    return _studio_service_create(db=db, user_id=current_user.id, payload=payload)
 
 
 @app.get("/api/studios", response_model=list[schemas.StudioOut])
@@ -458,13 +418,7 @@ def list_studios(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    return list(
-        db.scalars(
-            select(models.Studio)
-            .where(models.Studio.user_id == current_user.id)
-            .order_by(models.Studio.name)
-        ).all()
-    )
+    return _studio_service_list(db=db, user_id=current_user.id)
 
 
 @app.delete("/api/studios/{studio_id}", status_code=204)
@@ -473,8 +427,7 @@ def delete_studio(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    db.delete(_get_studio(db, studio_id, current_user))
-    db.commit()
+    _or_404(_studio_service_delete, db=db, user_id=current_user.id, studio_id=studio_id)
 
 
 # ------------------------------------------------------------------ folders
@@ -486,12 +439,7 @@ def create_folder(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    _get_studio(db, payload.studio_id, current_user)
-    folder = models.Folder(id=_uid(), name=payload.name, studio_id=payload.studio_id)
-    db.add(folder)
-    db.commit()
-    db.refresh(folder)
-    return folder
+    return _or_404(_folder_service_create, db=db, user_id=current_user.id, payload=payload)
 
 
 @app.get("/api/studios/{studio_id}/folders", response_model=list[schemas.FolderOut])
@@ -500,14 +448,7 @@ def list_folders(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    _get_studio(db, studio_id, current_user)
-    return list(
-        db.scalars(
-            select(models.Folder)
-            .where(models.Folder.studio_id == studio_id)
-            .order_by(models.Folder.name)
-        ).all()
-    )
+    return _or_404(_folder_service_list, db=db, user_id=current_user.id, studio_id=studio_id)
 
 
 @app.delete("/api/folders/{folder_id}", status_code=204)
@@ -516,8 +457,7 @@ def delete_folder(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    db.delete(_get_folder(db, folder_id, current_user))
-    db.commit()
+    _or_404(_folder_service_delete, db=db, user_id=current_user.id, folder_id=folder_id)
 
 
 # ------------------------------------------------------------------ boards
@@ -528,23 +468,7 @@ def list_boards(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    boards = db.scalars(
-        select(models.Board)
-        .join(models.Studio, models.Board.studio_id == models.Studio.id)
-        .where(models.Studio.user_id == current_user.id)
-        .order_by(models.Board.updated_at.desc())
-    ).all()
-    out = []
-    for b in boards:
-        s = schemas.BoardSummary.model_validate(b)
-        s.node_count = db.scalar(
-            select(func.count()).select_from(models.Node).where(models.Node.board_id == b.id)
-        )
-        s.edge_count = db.scalar(
-            select(func.count()).select_from(models.Edge).where(models.Edge.board_id == b.id)
-        )
-        out.append(s)
-    return out
+    return _board_service_list_all(db=db, user_id=current_user.id)
 
 
 @app.post("/api/boards", response_model=schemas.BoardState, status_code=201)
@@ -553,24 +477,12 @@ def create_board(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    _get_studio(db, payload.studio_id, current_user)
-    if payload.folder_id:
-        folder = _get_folder(db, payload.folder_id, current_user)
-        if folder.studio_id != payload.studio_id:
-            raise HTTPException(
-                422,
-                "La carpeta no pertenece al Studio especificado",
-            )
-    board = models.Board(
-        id=_uid(),
-        name=payload.name,
-        studio_id=payload.studio_id,
-        folder_id=payload.folder_id,
+    return _handle_domain(
+        _board_service_create,
+        db=db,
+        user_id=current_user.id,
+        payload=payload,
     )
-    db.add(board)
-    db.commit()
-    db.refresh(board)
-    return _board_state(board)
 
 
 @app.get("/api/studios/{studio_id}/boards", response_model=schemas.StudioBoardsOut)
@@ -579,28 +491,12 @@ def list_studio_boards(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    _get_studio(db, studio_id, current_user)
-    all_boards = db.scalars(
-        select(models.Board)
-        .where(models.Board.studio_id == studio_id)
-        .order_by(models.Board.updated_at.desc())
-    ).all()
-
-    root_boards = []
-    folder_boards = []
-    for b in all_boards:
-        s = schemas.BoardSummary.model_validate(b)
-        s.node_count = db.scalar(
-            select(func.count()).select_from(models.Node).where(models.Node.board_id == b.id)
-        )
-        s.edge_count = db.scalar(
-            select(func.count()).select_from(models.Edge).where(models.Edge.board_id == b.id)
-        )
-        if b.folder_id is None:
-            root_boards.append(s)
-        else:
-            folder_boards.append(s)
-    return schemas.StudioBoardsOut(root_boards=root_boards, folder_boards=folder_boards)
+    return _or_404(
+        _board_service_list_studio,
+        db=db,
+        user_id=current_user.id,
+        studio_id=studio_id,
+    )
 
 
 @app.get("/api/folders/{folder_id}/boards", response_model=list[schemas.BoardSummary])
@@ -609,23 +505,12 @@ def list_folder_boards(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    _get_folder(db, folder_id, current_user)
-    boards = db.scalars(
-        select(models.Board)
-        .where(models.Board.folder_id == folder_id)
-        .order_by(models.Board.updated_at.desc())
-    ).all()
-    out = []
-    for b in boards:
-        s = schemas.BoardSummary.model_validate(b)
-        s.node_count = db.scalar(
-            select(func.count()).select_from(models.Node).where(models.Node.board_id == b.id)
-        )
-        s.edge_count = db.scalar(
-            select(func.count()).select_from(models.Edge).where(models.Edge.board_id == b.id)
-        )
-        out.append(s)
-    return out
+    return _or_404(
+        _board_service_list_folder,
+        db=db,
+        user_id=current_user.id,
+        folder_id=folder_id,
+    )
 
 
 @app.get("/api/boards/{board_id}", response_model=schemas.BoardState)
@@ -634,7 +519,12 @@ def get_board(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    return _board_state(_get_board(db, board_id, current_user))
+    return _or_404(
+        _board_service_get,
+        db=db,
+        user_id=current_user.id,
+        board_id=board_id,
+    )
 
 
 @app.get("/api/boards/{board_id}/tags", response_model=list[str])
@@ -644,13 +534,12 @@ def board_tags(
     current_user: models.User = Depends(get_current_user),
 ):
     """Tags únicos usados por los nodos del tablero, para autocompletar en el editor."""
-    board = _get_board(db, board_id, current_user)
-    unique: dict[str, None] = {}
-    for node in board.nodes:
-        for tag in node.tags or []:
-            if isinstance(tag, str) and tag and tag not in unique:
-                unique[tag] = None
-    return sorted(unique, key=str.lower)
+    return _or_404(
+        _tags_service_list,
+        db=db,
+        user_id=current_user.id,
+        board_id=board_id,
+    )
 
 
 @app.patch("/api/boards/{board_id}", response_model=schemas.BoardState)
@@ -660,21 +549,29 @@ def rename_board(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    board = _get_board(db, board_id, current_user)
-    board.name = payload.name
-    db.commit()
-    db.refresh(board)
-    return _board_state(board)
+    return _handle_domain(
+        _board_service_rename,
+        db=db,
+        user_id=current_user.id,
+        board_id=board_id,
+        payload=payload,
+    )
 
 
 @app.delete("/api/boards/{board_id}", status_code=204)
 def delete_board(
     board_id: str,
+    expected_version: int,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    db.delete(_get_board(db, board_id, current_user))
-    db.commit()
+    _handle_domain(
+        _board_service_delete,
+        db=db,
+        user_id=current_user.id,
+        board_id=board_id,
+        expected_version=expected_version,
+    )
 
 
 @app.put("/api/boards/{board_id}/state", response_model=schemas.BoardState)
@@ -687,41 +584,15 @@ def save_board_state(
     """Reemplaza nodos y aristas del tablero con el estado enviado.
 
     Pensado para el autosave del canvas: el frontend manda todo el estado
-    (con debounce) y la API lo persiste de forma atómica.
+    (con debounce) y la API lo persiste de forma atómica con optimistic locking.
     """
-    board = _get_board(db, board_id, current_user)
-    if payload.name is not None:
-        board.name = payload.name
-
-    # Reemplazo total: borrar lo existente y recrear
-    for n in list(board.nodes):
-        db.delete(n)
-    for e in list(board.edges):
-        db.delete(e)
-    db.flush()
-
-    for n in payload.nodes:
-        dumped = n.model_dump()
-        db.add(models.Node(
-            id=n.id or _uid(),
-            board_id=board.id,
-            type=n.type, x=n.x, y=n.y, w=n.w, title=n.title,
-            ports=dumped["ports"], blocks=dumped["blocks"],
-            stages=dumped["stages"], tags=dumped["tags"],
-        ))
-    for e in payload.edges:
-        db.add(models.Edge(
-            id=e.id or _uid(),
-            board_id=board.id,
-            from_node=e.from_.nodeId, from_port=e.from_.portId,
-            to_node=e.to.nodeId, to_port=e.to.portId,
-            curved=e.curved, label=e.label,
-        ))
-
-    board.updated_at = models._now()
-    db.commit()
-    db.refresh(board)
-    return _board_state(board)
+    return _handle_domain(
+        _board_state_service_save,
+        db=db,
+        user_id=current_user.id,
+        board_id=board_id,
+        payload=payload,
+    )
 
 
 # ------------------------------------------------------------------ nodos
@@ -730,64 +601,51 @@ def save_board_state(
 @app.post("/api/boards/{board_id}/nodes", response_model=schemas.NodeSchema, status_code=201)
 def create_node(
     board_id: str,
-    payload: schemas.NodeSchema,
+    payload: schemas.NodeCreateRequest,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    board = _get_board(db, board_id, current_user)
-    dumped = payload.model_dump()
-    node = models.Node(
-        id=payload.id or _uid(),
-        board_id=board.id,
-        type=payload.type, x=payload.x, y=payload.y, w=payload.w, title=payload.title,
-        ports=dumped["ports"], blocks=dumped["blocks"],
-        stages=dumped["stages"], tags=dumped["tags"],
+    return _handle_domain(
+        _node_service_create,
+        db=db,
+        user_id=current_user.id,
+        board_id=board_id,
+        payload=payload,
+        expected_version=payload.expected_version,
     )
-    db.add(node)
-    board.updated_at = models._now()
-    db.commit()
-    db.refresh(node)
-    return _node_to_schema(node)
 
 
 @app.patch("/api/nodes/{node_id}", response_model=schemas.NodeSchema)
 def update_node(
     node_id: str,
-    payload: schemas.NodeUpdate,
+    payload: schemas.NodeUpdateRequest,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    node = _get_owned_node(db, node_id, current_user)
-    data = payload.model_dump(exclude_unset=True)
-    if "tags" in data and data["tags"] is None:
-        data["tags"] = []
-    for field, value in data.items():
-        setattr(node, field, value)
-    node.board.updated_at = models._now()
-    db.commit()
-    db.refresh(node)
-    return _node_to_schema(node)
+    return _handle_domain(
+        _node_service_update,
+        db=db,
+        user_id=current_user.id,
+        node_id=node_id,
+        payload=payload,
+        expected_version=payload.expected_version,
+    )
 
 
 @app.delete("/api/nodes/{node_id}", status_code=204)
 def delete_node(
     node_id: str,
+    expected_version: int,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    node = _get_owned_node(db, node_id, current_user)
-    # Eliminar también las aristas conectadas a este nodo
-    edges = db.scalars(
-        select(models.Edge).where(
-            models.Edge.board_id == node.board_id,
-            or_(models.Edge.from_node == node_id, models.Edge.to_node == node_id),
-        )
-    ).all()
-    for e in edges:
-        db.delete(e)
-    node.board.updated_at = models._now()
-    db.delete(node)
-    db.commit()
+    _handle_domain(
+        _node_service_delete,
+        db=db,
+        user_id=current_user.id,
+        node_id=node_id,
+        expected_version=expected_version,
+    )
 
 
 # ------------------------------------------------------------------ aristas
@@ -796,59 +654,148 @@ def delete_node(
 @app.post("/api/boards/{board_id}/edges", response_model=schemas.EdgeSchema, status_code=201)
 def create_edge(
     board_id: str,
-    payload: schemas.EdgeSchema,
+    payload: schemas.EdgeCreateRequest,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    board = _get_board(db, board_id, current_user)
-
-    node_ids = {n.id for n in board.nodes}
-    if payload.from_.nodeId not in node_ids or payload.to.nodeId not in node_ids:
-        raise HTTPException(422, "La arista referencia nodos que no existen en este tablero")
-
-    edge = models.Edge(
-        id=payload.id or _uid(),
-        board_id=board.id,
-        from_node=payload.from_.nodeId, from_port=payload.from_.portId,
-        to_node=payload.to.nodeId, to_port=payload.to.portId,
-        curved=payload.curved, label=payload.label,
+    return _handle_domain(
+        _edge_service_create,
+        db=db,
+        user_id=current_user.id,
+        board_id=board_id,
+        payload=payload,
+        expected_version=payload.expected_version,
     )
-    db.add(edge)
-    board.updated_at = models._now()
-    db.commit()
-    db.refresh(edge)
-    return _edge_to_schema(edge)
 
 
 @app.patch("/api/edges/{edge_id}", response_model=schemas.EdgeSchema)
 def update_edge(
     edge_id: str,
-    payload: schemas.EdgeUpdate,
+    payload: schemas.EdgeUpdateRequest,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    edge = _get_owned_edge(db, edge_id, current_user)
-    if payload.curved is not None:
-        edge.curved = payload.curved
-    fields = payload.model_dump(exclude_unset=True)
-    if "label" in fields:
-        edge.label = fields["label"] if fields["label"] is not None else ""
-    edge.board.updated_at = models._now()
-    db.commit()
-    db.refresh(edge)
-    return _edge_to_schema(edge)
+    return _handle_domain(
+        _edge_service_update,
+        db=db,
+        user_id=current_user.id,
+        edge_id=edge_id,
+        payload=payload,
+        expected_version=payload.expected_version,
+    )
 
 
 @app.delete("/api/edges/{edge_id}", status_code=204)
 def delete_edge(
     edge_id: str,
+    expected_version: int,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    edge = _get_owned_edge(db, edge_id, current_user)
-    edge.board.updated_at = models._now()
-    db.delete(edge)
-    db.commit()
+    _handle_domain(
+        _edge_service_delete,
+        db=db,
+        user_id=current_user.id,
+        edge_id=edge_id,
+        expected_version=expected_version,
+    )
+
+
+# ------------------------------------------------------------------ mcp tokens
+
+
+@app.post(
+    "/api/integrations/mcp/tokens",
+    response_model=schemas.MCPTokenCreated,
+    status_code=201,
+)
+def create_mcp_token(
+    payload: schemas.MCPTokenCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    return _handle_domain(
+        _mcp_token_service_create,
+        db=db,
+        user_id=current_user.id,
+        payload=payload,
+    )
+
+
+@app.get(
+    "/api/integrations/mcp/tokens",
+    response_model=list[schemas.MCPTokenSummary],
+)
+def list_mcp_tokens(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    return _mcp_token_service_list(db=db, user_id=current_user.id)
+
+
+@app.post(
+    "/api/integrations/mcp/tokens/{token_id}/revoke",
+    response_model=schemas.MCPTokenSummary,
+)
+def revoke_mcp_token(
+    token_id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    return _handle_domain(
+        _mcp_token_service_revoke,
+        db=db,
+        user_id=current_user.id,
+        token_id=token_id,
+    )
+
+
+@app.delete(
+    "/api/integrations/mcp/tokens/{token_id}",
+    status_code=204,
+)
+def delete_mcp_token(
+    token_id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    _handle_domain(
+        _mcp_token_service_delete,
+        db=db,
+        user_id=current_user.id,
+        token_id=token_id,
+    )
+
+
+@app.get(
+    "/api/integrations/mcp/auth-check",
+    response_model=schemas.MCPAuthCheck,
+)
+def mcp_auth_check(
+    ctx: schemas.MCPAuthCheck = Depends(_get_mcp_context),
+):
+    """Endpoint temporal de diagnóstico para autenticación Bearer MCP.
+
+    Solo acepta Bearer MCP (no cookie de sesión web).
+    Devuelve información mínima y no sensible.
+    """
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    return schemas.MCPAuthCheck(
+        authenticated=True,
+        token_id=ctx.token_id,
+        token_prefix=ctx.token_prefix,
+        scopes=sorted(ctx.scopes),
+        constraints=None
+        if ctx.constraints is None
+        else schemas.MCPTokenConstraints(
+            studio_ids=ctx.constraints.get("studio_ids"),
+            board_ids=ctx.constraints.get("board_ids"),
+        ),
+        expires_at=ctx.expires_at,
+        last_used_at=now,
+    )
 
 
 # ------------------------------------------------------------------ health
@@ -857,6 +804,21 @@ def delete_edge(
 @app.api_route("/api/health", methods=["GET", "HEAD"])
 def health():
     return {"status": "ok"}
+
+
+# ------------------------------------------------------------------
+# Servidor MCP (solo lectura, Streamable HTTP)
+# ------------------------------------------------------------------
+# Se monta ANTES del catch-all SPA para que las rutas MCP tengan
+# prioridad sobre el frontend estático.  El servidor MCP solo se
+# activa cuando MCP_ENABLED=true.
+
+if _is_true(os.getenv("MCP_ENABLED")):
+    from starlette.routing import Mount as _Mount
+
+    from .mcp.server import get_mcp_asgi
+
+    app.mount("/mcp", get_mcp_asgi())
 
 
 # ------------------------------------------------------------------

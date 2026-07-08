@@ -30,16 +30,22 @@ from app.main import (
 from app.models import User
 from app.schemas import (
     BoardCreate,
+    BoardRename,
     BoardStateSave,
+    EdgeCreateRequest,
     EdgeSchema,
     EdgeUpdate,
+    EdgeUpdateRequest,
     FolderCreate,
+    NodeCreateRequest,
     NodeSchema,
     NodeUpdate,
+    NodeUpdateRequest,
     Port,
     PortRef,
     StudioCreate,
 )
+from app.services.errors import VersionConflict
 
 
 @pytest.fixture()
@@ -98,20 +104,37 @@ def _make_node(node_id: str, **overrides) -> NodeSchema:
     )
 
 
+def _node_create(node_id: str, expected_version: int = 1, **overrides) -> NodeCreateRequest:
+    return NodeCreateRequest(
+        **_make_node(node_id, **overrides).model_dump(),
+        expected_version=expected_version,
+    )
+
+
+def _v(db, bid):
+    """Helper: retorna la versión actual del board."""
+    from app.models import Board as _B
+    return db.get(_B, bid).version
+
+
 def _board_with_edge(db, user=None, label="inicial", curved=True):
     """Crea board + dos nodos + una edge `e1`, y devuelve el board_id."""
     u = user or _user(db)
     bid = _board(db, user=u)
-    create_node(bid, _make_node("n1"), db, current_user=u)
-    create_node(bid, _make_node("n2"), db, current_user=u)
+    v = _v(db, bid)  # version=1
+    create_node(bid, _node_create("n1", expected_version=v), db, current_user=u)
+    v = _v(db, bid)  # version=2
+    create_node(bid, _node_create("n2", expected_version=v), db, current_user=u)
+    v = _v(db, bid)  # version=3
     create_edge(
         bid,
-        EdgeSchema(
+        EdgeCreateRequest(
             id="e1",
             from_=PortRef(nodeId="n1", portId="p"),
             to=PortRef(nodeId="n2", portId="p"),
             curved=curved,
             label=label,
+            expected_version=v,
         ),
         db,
         current_user=u,
@@ -122,7 +145,7 @@ def _board_with_edge(db, user=None, label="inicial", curved=True):
 def test_create_node_tags_roundtrip(db):
     u = _user(db)
     bid = _board(db, user=u)
-    created = create_node(bid, _make_node("n1", tags=["alpha", "beta"]), db, current_user=u)
+    created = create_node(bid, _node_create("n1", tags=["alpha", "beta"]), db, current_user=u)
     assert created.tags == ["alpha", "beta"]
     # Se lee igual desde el estado completo del tablero
     node = get_board(bid, db, current_user=u).nodes[0]
@@ -132,22 +155,26 @@ def test_create_node_tags_roundtrip(db):
 def test_create_node_without_tags_defaults_empty(db):
     u = _user(db)
     bid = _board(db, user=u)
-    created = create_node(bid, _make_node("n1"), db, current_user=u)
+    created = create_node(bid, _node_create("n1"), db, current_user=u)
     assert created.tags == []
 
 
 def test_create_edge_label_roundtrip(db):
     u = _user(db)
     bid = _board(db, user=u)
-    create_node(bid, _make_node("n1"), db, current_user=u)
-    create_node(bid, _make_node("n2"), db, current_user=u)
+    v = _v(db, bid)
+    create_node(bid, _node_create("n1", expected_version=v), db, current_user=u)
+    v = _v(db, bid)
+    create_node(bid, _node_create("n2", expected_version=v), db, current_user=u)
+    v = _v(db, bid)
     created = create_edge(
         bid,
-        EdgeSchema(
+        EdgeCreateRequest(
             id="e1",
             from_=PortRef(nodeId="n1", portId="p"),
             to=PortRef(nodeId="n2", portId="p"),
             label="depende de",
+            expected_version=v,
         ),
         db,
         current_user=u,
@@ -159,14 +186,18 @@ def test_create_edge_label_roundtrip(db):
 def test_create_edge_without_label_defaults_empty(db):
     u = _user(db)
     bid = _board(db, user=u)
-    create_node(bid, _make_node("n1"), db, current_user=u)
-    create_node(bid, _make_node("n2"), db, current_user=u)
+    v = _v(db, bid)
+    create_node(bid, _node_create("n1", expected_version=v), db, current_user=u)
+    v = _v(db, bid)
+    create_node(bid, _node_create("n2", expected_version=v), db, current_user=u)
+    v = _v(db, bid)
     created = create_edge(
         bid,
-        EdgeSchema(
+        EdgeCreateRequest(
             id="e1",
             from_=PortRef(nodeId="n1", portId="p"),
             to=PortRef(nodeId="n2", portId="p"),
+            expected_version=v,
         ),
         db,
         current_user=u,
@@ -190,6 +221,7 @@ def test_save_board_state_propagates_tags_and_label(db):
                 label="conecta",
             )
         ],
+        expected_version=1,
     )
     save_board_state(bid, state, db, current_user=u)
     board = get_board(bid, db, current_user=u)
@@ -203,8 +235,8 @@ def test_update_node_tags_absent_preserves(db):
     """PATCH sin la clave `tags` no debe pisar el valor existente."""
     u = _user(db)
     bid = _board(db, user=u)
-    create_node(bid, _make_node("n1", tags=["keep"]), db, current_user=u)
-    update_node("n1", NodeUpdate(title="nuevo"), db, current_user=u)
+    create_node(bid, _node_create("n1", expected_version=1, tags=["keep"]), db, current_user=u)
+    update_node("n1", NodeUpdateRequest(title="nuevo", expected_version=2), db, current_user=u)
     node = get_board(bid, db, current_user=u).nodes[0]
     assert node.title == "nuevo"
     assert node.tags == ["keep"]
@@ -213,16 +245,16 @@ def test_update_node_tags_absent_preserves(db):
 def test_update_node_tags_present_updates(db):
     u = _user(db)
     bid = _board(db, user=u)
-    create_node(bid, _make_node("n1", tags=["old"]), db, current_user=u)
-    assert update_node("n1", NodeUpdate(tags=["new1", "new2"]), db, current_user=u).tags == ["new1", "new2"]
+    create_node(bid, _node_create("n1", expected_version=1, tags=["old"]), db, current_user=u)
+    assert update_node("n1", NodeUpdateRequest(tags=["new1", "new2"], expected_version=2), db, current_user=u).tags == ["new1", "new2"]
 
 
 def test_update_node_tags_null_clears(db):
     """`tags: null` explícito es distinto de ausente: limpia a lista vacía (no 500)."""
     u = _user(db)
     bid = _board(db, user=u)
-    create_node(bid, _make_node("n1", tags=["will", "clear"]), db, current_user=u)
-    resp = update_node("n1", NodeUpdate(tags=None), db, current_user=u)
+    create_node(bid, _node_create("n1", expected_version=1, tags=["will", "clear"]), db, current_user=u)
+    resp = update_node("n1", NodeUpdateRequest(tags=None, expected_version=2), db, current_user=u)
     assert resp.tags == []
 
 
@@ -230,8 +262,10 @@ def test_board_tags_aggregates_unique_sorted(db):
     """GET /tags une los tags de todos los nodos, deduplica y ordena case-insensitive."""
     u = _user(db)
     bid = _board(db, user=u)
-    create_node(bid, _make_node("n1", tags=["Beta", "alpha"]), db, current_user=u)
-    create_node(bid, _make_node("n2", tags=["alpha", "Zeta"]), db, current_user=u)  # 'alpha' repetido
+    v = _v(db, bid)
+    create_node(bid, _node_create("n1", expected_version=v, tags=["Beta", "alpha"]), db, current_user=u)
+    v = _v(db, bid)
+    create_node(bid, _node_create("n2", expected_version=v, tags=["alpha", "Zeta"]), db, current_user=u)
     assert board_tags(bid, db, current_user=u) == ["alpha", "Beta", "Zeta"]
 
 
@@ -263,3 +297,26 @@ def test_delete_other_users_studio_returns_404(db):
     # Confirmar que el studio sigue existiendo para el usuario A
     a_studios = list_studios(db, current_user=a)
     assert len(a_studios) == 1
+
+
+# ======================================================================
+# Board version in output
+# ======================================================================
+
+
+def test_board_state_includes_version(db):
+    u = _user(db)
+    bid = _board(db, user=u)
+    state = get_board(bid, db, current_user=u)
+    assert hasattr(state, "version")
+    assert state.version == 1
+
+
+def test_list_boards_includes_version(db):
+    u = _user(db)
+    _board(db, user=u)
+    boards = list_studio_boards(
+        _studio(db, user=u), db, current_user=u
+    )
+    for b in boards.root_boards:
+        assert hasattr(b, "version")
