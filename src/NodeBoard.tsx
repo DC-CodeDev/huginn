@@ -6,7 +6,7 @@ import {
 import { api, useBoardPersistence } from "./api";
 import { PORT_COLORS } from "./types";
 import type { Node, Edge, Port } from "./types";
-import type { Pending, DragState, ColorMenu } from "./lib/canvas-types";
+import type { Pending, DragState, ColorMenu, DeletePortConfirm } from "./lib/canvas-types";
 import { portPos, edgePath } from "./lib/geometry";
 import { THEMES } from "./lib/theme";
 import { uid } from "./lib/id";
@@ -65,6 +65,7 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
   const [menuNode, setMenuNode] = useState<string | null>(null);
   const [tagsNode, setTagsNode] = useState<string | null>(null); // nodo con el modal de tags abierto
   const [colorMenu, setColorMenu] = useState<ColorMenu>(null); // {nodeId, portId, x, y} en coords de pantalla
+  const [deletePortConfirm, setDeletePortConfirm] = useState<DeletePortConfirm>(null);
   const [defaultCurved, setDefaultCurved] = useState(true);
 
   const [filterOpen, setFilterOpen] = useState(false);
@@ -572,7 +573,7 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
       {/* ---------- Menú contextual de colores ---------- */}
       {colorMenu && (
         <div
-          className="absolute z-30 flex items-center gap-2 rounded-full px-3 py-2"
+          className="absolute z-30 flex flex-col gap-1.5 rounded-2xl px-3 py-2"
           style={{
             left: colorMenu.x, top: colorMenu.y,
             transform: "translate(-50%, calc(-100% - 10px))",
@@ -585,28 +586,134 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
           onMouseDown={(e) => e.stopPropagation()}
           onContextMenu={(e) => e.preventDefault()}
         >
-          {PORT_COLORS.map((c) => {
-            const current = nodeById[colorMenu.nodeId]?.ports.find((p) => p.id === colorMenu.portId)?.color === c;
-            return (
+          <div className="flex items-center gap-2">
+            {PORT_COLORS.map((c) => {
+              const current = nodeById[colorMenu.nodeId]?.ports.find((p) => p.id === colorMenu.portId)?.color === c;
+              return (
+                <button
+                  key={c}
+                  className="rounded-full transition-transform hover:scale-125"
+                  style={{
+                    width: 14, height: 14, background: c,
+                    border: current ? `2px solid ${T.text}` : `2px solid ${T.card}`,
+                    boxShadow: `0 0 6px -1px ${c}`,
+                  }}
+                  title={c}
+                  onClick={() => {
+                    updateNode(colorMenu.nodeId, (n) => ({
+                      ...n,
+                      ports: n.ports.map((p) => p.id === colorMenu.portId ? { ...p, color: c } : p),
+                    }));
+                    setColorMenu(null);
+                  }}
+                />
+              );
+            })}
+          </div>
+          <div className="h-px" style={{ background: T.cardBorder }} />
+          <button
+            className="flex items-center gap-1.5 text-xs rounded-xl px-2.5 py-1.5 transition-colors hover:opacity-80"
+            style={{ color: "#F87171" }}
+            onClick={() => {
+              const node = nodeById[colorMenu.nodeId];
+              if (!node) return;
+              const edgeCount = edges.filter(
+                (e) => (e.from.nodeId === colorMenu.nodeId && e.from.portId === colorMenu.portId)
+                    || (e.to.nodeId === colorMenu.nodeId && e.to.portId === colorMenu.portId)
+              ).length;
+              setColorMenu(null);
+              setDeletePortConfirm({ nodeId: colorMenu.nodeId, portId: colorMenu.portId, step: "confirm", edgeCount });
+            }}
+          >
+            <Trash2 size={12} /> Eliminar puerto
+          </button>
+        </div>
+      )}
+
+      {/* ---------- Confirmación de eliminación de puerto ---------- */}
+      {deletePortConfirm && deletePortConfirm.step === "confirm" && (
+        <div
+          className="absolute inset-0 z-50 flex items-center justify-center"
+          style={{ background: "rgba(0,0,0,.5)" }}
+          onClick={() => setDeletePortConfirm(null)}
+        >
+          <div
+            className="rounded-2xl px-6 py-5 shadow-xl max-w-sm w-full mx-4"
+            style={{ background: T.card, border: `1px solid ${T.cardBorder}` }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="font-semibold mb-2" style={{ color: T.text }}>¿Eliminar puerto?</div>
+            <div className="text-sm mb-4" style={{ color: T.sub }}>
+              {deletePortConfirm.edgeCount === 0
+                ? "Este puerto no tiene conexiones. Se eliminará sin afectar edges."
+                : `Este puerto tiene ${deletePortConfirm.edgeCount} conexión${deletePortConfirm.edgeCount !== 1 ? "es" : ""}. Eliminarlo también eliminará esa${deletePortConfirm.edgeCount !== 1 ? "s" : ""} ${deletePortConfirm.edgeCount} conexión${deletePortConfirm.edgeCount !== 1 ? "es" : ""}.`}
+            </div>
+            <div className="flex gap-2 justify-end">
               <button
-                key={c}
-                className="rounded-full transition-transform hover:scale-125"
-                style={{
-                  width: 14, height: 14, background: c,
-                  border: current ? `2px solid ${T.text}` : `2px solid ${T.card}`,
-                  boxShadow: `0 0 6px -1px ${c}`,
-                }}
-                title={c}
+                className="px-4 py-2 rounded-xl text-sm font-medium"
+                style={{ background: T.field, border: `1px solid ${T.fieldBorder}`, color: T.text }}
+                onClick={() => setDeletePortConfirm(null)}
+              >
+                Cancelar
+              </button>
+              <button
+                className="px-4 py-2 rounded-xl text-sm font-medium"
+                style={{ background: "#F87171", color: "#fff" }}
+                onClick={() => setDeletePortConfirm((prev) => prev ? { ...prev, step: "final" } : null)}
+              >
+                Continuar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deletePortConfirm && deletePortConfirm.step === "final" && (
+        <div
+          className="absolute inset-0 z-50 flex items-center justify-center"
+          style={{ background: "rgba(0,0,0,.5)" }}
+          onClick={() => setDeletePortConfirm(null)}
+        >
+          <div
+            className="rounded-2xl px-6 py-5 shadow-xl max-w-sm w-full mx-4"
+            style={{ background: T.card, border: `1px solid ${T.cardBorder}` }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="font-semibold mb-2" style={{ color: T.text }}>Confirmación final</div>
+            <div className="text-sm mb-4" style={{ color: T.sub }}>
+              Esta acción no se puede deshacer. ¿Estás seguro de que deseas eliminar este puerto{deletePortConfirm.edgeCount > 0 ? ` y sus ${deletePortConfirm.edgeCount} conexión${deletePortConfirm.edgeCount !== 1 ? "es" : ""}` : ""}?
+            </div>
+            <div className="flex gap-2 justify-end">
+              <button
+                className="px-4 py-2 rounded-xl text-sm font-medium"
+                style={{ background: T.field, border: `1px solid ${T.fieldBorder}`, color: T.text }}
+                onClick={() => setDeletePortConfirm(null)}
+              >
+                Cancelar
+              </button>
+              <button
+                className="px-4 py-2 rounded-xl text-sm font-medium"
+                style={{ background: "#F87171", color: "#fff" }}
                 onClick={() => {
-                  updateNode(colorMenu.nodeId, (n) => ({
+                  const conf = deletePortConfirm;
+                  if (!conf) return;
+                  // 1) Eliminar edges asociadas al puerto
+                  setEdges((es) => es.filter(
+                    (e) => !(e.from.nodeId === conf.nodeId && e.from.portId === conf.portId)
+                        && !(e.to.nodeId === conf.nodeId && e.to.portId === conf.portId)
+                  ));
+                  // 2) Eliminar el puerto del nodo
+                  updateNode(conf.nodeId, (n) => ({
                     ...n,
-                    ports: n.ports.map((p) => p.id === colorMenu.portId ? { ...p, color: c } : p),
+                    ports: n.ports.filter((p) => p.id !== conf.portId),
                   }));
-                  setColorMenu(null);
+                  setDeletePortConfirm(null);
                 }}
-              />
-            );
-          })}
+              >
+                Eliminar
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

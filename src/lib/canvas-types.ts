@@ -15,6 +15,13 @@ export type Pending = { nodeId: string; portId: string; color: PortColor } | nul
 
 export type ColorMenu = { nodeId: string; portId: string; x: number; y: number } | null;
 
+export type DeletePortConfirm = {
+  nodeId: string;
+  portId: string;
+  step: "confirm" | "final";
+  edgeCount: number;
+} | null;
+
 export type DragState =
   | { kind: "pan"; sx: number; sy: number; vx: number; vy: number }
   | { kind: "node"; id: string; ox: number; oy: number }
