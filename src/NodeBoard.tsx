@@ -434,13 +434,15 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
         if (e.target !== canvasRef.current) return;
         setSelectedNodeIds([]); setSelectedEdgeId(null); setMenuNode(null); setPending(null); setColorMenu(null);
         if (e.button === 0) {
-          const rect = canvasRef.current!.getBoundingClientRect();
-          const sx = e.clientX - rect.left, sy = e.clientY - rect.top;
-          marqueeRef.current = { sx, sy, mx: sx, my: sy };
-          setMarqueeRect({ sx, sy, mx: sx, my: sy });
-        } else if (e.button === 1) {
-          e.preventDefault();
-          dragRef.current = { kind: "pan", sx: e.clientX, sy: e.clientY, vx: view.x, vy: view.y };
+          if (e.ctrlKey || e.metaKey) {
+            const rect = canvasRef.current!.getBoundingClientRect();
+            const sx = e.clientX - rect.left, sy = e.clientY - rect.top;
+            marqueeRef.current = { sx, sy, mx: sx, my: sy };
+            setMarqueeRect({ sx, sy, mx: sx, my: sy });
+          } else {
+            e.preventDefault();
+            dragRef.current = { kind: "pan", sx: e.clientX, sy: e.clientY, vx: view.x, vy: view.y };
+          }
         }
       }}
       onDoubleClick={(e) => {
@@ -894,8 +896,8 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
       {showHelp && (
         <div className="absolute app-safe-bottom-left text-[11px] leading-relaxed max-w-xs" style={{ color: T.sub }}>
           Doble clic en el lienzo: nuevo nodo · Clic en un punto de color: iniciar/terminar conexión ·
-          Botón derecho en un punto: elegir color · Rueda: zoom · Arrastrar fondo: selección múltiple ·
-          Botón central: mover lienzo · Snap magnético al arrastrar nodos
+          Botón derecho en un punto: elegir color · Rueda: zoom · Arrastrar fondo: mover lienzo ·
+          Ctrl+arrastrar fondo: selección múltiple · Snap magnético al arrastrar nodos
         </div>
       )}
     </div>
