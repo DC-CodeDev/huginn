@@ -67,6 +67,7 @@ def save_board_state(
                 type=n.type, x=n.x, y=n.y, w=n.w, title=n.title,
                 ports=dumped["ports"], blocks=dumped["blocks"],
                 stages=dumped["stages"], tags=dumped["tags"],
+                orientation=n.orientation,
             ))
 
         for e in payload.edges:

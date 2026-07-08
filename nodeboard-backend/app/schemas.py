@@ -80,6 +80,7 @@ class NodeSchema(BaseModel):
     blocks: list[Block] = Field(default_factory=list)
     stages: list[TimelineStage] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
+    orientation: Optional[Literal["horizontal", "vertical"]] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -95,6 +96,7 @@ class NodeUpdate(BaseModel):
     blocks: Optional[list[Block]] = None
     stages: Optional[list[TimelineStage]] = None
     tags: Optional[list[str]] = None
+    orientation: Optional[Literal["horizontal", "vertical"]] = None
 
 
 class NodeCreateRequest(NodeSchema):

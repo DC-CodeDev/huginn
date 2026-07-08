@@ -1,7 +1,7 @@
 import type { MouseEvent as ReactMouseEvent } from "react";
 import { Plus, Trash2, Type, Hash, Table2, Image as ImageIcon, Clock, CircleDot, Tag } from "lucide-react";
 import { PORT_COLORS } from "../types";
-import type { Node, Port } from "../types";
+import type { Node, Port, PortColor } from "../types";
 import type { Pending } from "../lib/canvas-types";
 import { PORT_Y0, PORT_DY } from "../lib/geometry";
 import type { Theme } from "../lib/theme";
@@ -24,12 +24,13 @@ interface NodeCardProps {
   onPortCycle: (portId: string) => void;
   onPortContext: (portId: string, e: ReactMouseEvent) => void;
   pending: Pending;
+  inputPortColors: Record<string, Record<string, PortColor>>;
   menuOpen: boolean;
   onOpenMenu: () => void;
   onOpenTags: () => void;
 }
 
-export function NodeCard({ node, T, theme, selected, opacity, onSelect, onStartDrag, onDelete, update, onPortClick, onPortCycle, onPortContext, pending, menuOpen, onOpenMenu, onOpenTags }: NodeCardProps) {
+export function NodeCard({ node, T, theme, selected, opacity, onSelect, onStartDrag, onDelete, update, onPortClick, onPortCycle, onPortContext, pending, inputPortColors, menuOpen, onOpenMenu, onOpenTags }: NodeCardProps) {
   const leftPorts = node.ports.filter((p) => p.side === "left");
   const rightPorts = node.ports.filter((p) => p.side === "right");
   const maxPorts = Math.max(leftPorts.length, rightPorts.length);
@@ -144,6 +145,9 @@ export function NodeCard({ node, T, theme, selected, opacity, onSelect, onStartD
         const sameSide = node.ports.filter((q) => q.side === p.side);
         const i = sameSide.findIndex((q) => q.id === p.id);
         const isPendingSrc = pending && pending.portId === p.id;
+        const displayColor = p.side === "left" && inputPortColors[node.id]?.[p.id]
+          ? inputPortColors[node.id][p.id]
+          : p.color;
         return (
           <div
             key={p.id}
@@ -154,9 +158,9 @@ export function NodeCard({ node, T, theme, selected, opacity, onSelect, onStartD
               width: 12, height: 12,
               top: PORT_Y0 + i * PORT_DY - 6,
               [p.side === "left" ? "left" : "right"]: -6,
-              background: p.color,
+              background: displayColor,
               border: `2px solid ${T.card}`,
-              boxShadow: isPendingSrc ? `0 0 10px 2px ${p.color}` : `0 0 6px -1px ${p.color}`,
+              boxShadow: isPendingSrc ? `0 0 10px 2px ${displayColor}` : `0 0 6px -1px ${displayColor}`,
             }}
             onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => { e.stopPropagation(); onPortClick(p); }}

@@ -44,6 +44,7 @@ export type Node =
       ports: Port[]
       tags: string[]
       type: "timeline"
+      orientation?: "horizontal" | "vertical"
       stages: TimelineStage[]
     }
 

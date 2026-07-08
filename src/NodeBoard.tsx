@@ -5,7 +5,7 @@ import {
 } from "lucide-react";
 import { api, useBoardPersistence } from "./api";
 import { PORT_COLORS } from "./types";
-import type { Node, Edge, Port } from "./types";
+import type { Node, Edge, Port, PortColor } from "./types";
 import type { Pending, DragState, ColorMenu, DeletePortConfirm } from "./lib/canvas-types";
 import { portPos, edgePath } from "./lib/geometry";
 import { THEMES } from "./lib/theme";
@@ -314,7 +314,10 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
       }]);
       setPending(null);
     } else {
-      setPending({ nodeId: node.id, portId: port.id, color: port.color });
+      const pendingColor = port.side === "left" && inputPortColors[node.id]?.[port.id]
+        ? inputPortColors[node.id][port.id]
+        : port.color;
+      setPending({ nodeId: node.id, portId: port.id, color: pendingColor });
     }
   };
 
@@ -395,6 +398,31 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
     for (const n of nodes) for (const t of n.tags) if (!seen.has(t.toLowerCase())) seen.set(t.toLowerCase(), t);
     return [...seen.values()];
   }, [nodes]);
+  // Mapa de colores calculados para puertos de entrada (left): con 1 conexión
+  // entrante adopta el color del puerto out de origen; con 0 o múltiples conexiones
+  // usa su propio color almacenado (por defecto blanco #E8EBF0).
+  const inputPortColors = useMemo(() => {
+    const map: Record<string, Record<string, PortColor>> = {};
+    for (const node of nodes) {
+      for (const port of node.ports) {
+        if (port.side !== "left") continue;
+        const incoming = edges.filter((e) => e.to.nodeId === node.id && e.to.portId === port.id);
+        if (incoming.length === 1) {
+          const edge = incoming[0];
+          const srcNode = nodeById[edge.from.nodeId];
+          if (srcNode) {
+            const srcPort = srcNode.ports.find((p) => p.id === edge.from.portId);
+            if (srcPort) {
+              if (!map[node.id]) map[node.id] = {};
+              map[node.id][port.id] = srcPort.color;
+            }
+          }
+        }
+      }
+    }
+    return map;
+  }, [nodes, edges, nodeById]);
+
   const tagsNodeObj = tagsNode ? nodeById[tagsNode] : null;
   const renderedEdges = edges.map((e) => {
     const a = nodeById[e.from.nodeId] && portPos(nodeById[e.from.nodeId], e.from.portId);
@@ -515,6 +543,7 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
             update={(fn) => updateNode(node.id, fn)}
             onPortClick={(port) => onPortClick(node, port)}
             onPortCycle={(portId) => cyclePortColor(node.id, portId)}
+            inputPortColors={inputPortColors}
             onPortContext={(portId, e) => {
               e.preventDefault(); e.stopPropagation();
               const rect = canvasRef.current!.getBoundingClientRect();
@@ -590,7 +619,11 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
         >
           <div className="flex items-center gap-2">
             {PORT_COLORS.map((c) => {
-              const current = nodeById[colorMenu.nodeId]?.ports.find((p) => p.id === colorMenu.portId)?.color === c;
+              const port = nodeById[colorMenu.nodeId]?.ports.find((p) => p.id === colorMenu.portId);
+              const displayColor = port && port.side === "left" && inputPortColors[colorMenu.nodeId]?.[colorMenu.portId]
+                ? inputPortColors[colorMenu.nodeId][colorMenu.portId]
+                : port?.color;
+              const current = displayColor === c;
               return (
                 <button
                   key={c}

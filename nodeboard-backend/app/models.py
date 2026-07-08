@@ -152,6 +152,7 @@ class Node(Base):
     blocks: Mapped[list] = mapped_column(JSON, default=list)   # [{id, type, ...}]
     stages: Mapped[list] = mapped_column(JSON, default=list)   # [{id, title, tags}]
     tags: Mapped[list] = mapped_column(JSON, default=list)     # ["texto libre", ...]
+    orientation: Mapped[Optional[str]] = mapped_column(String(20), nullable=True, default=None)
 
     board: Mapped["Board"] = relationship(back_populates="nodes")
 
