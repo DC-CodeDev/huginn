@@ -2,9 +2,21 @@ import re
 
 import pytest
 from pathlib import Path
+from fastapi import HTTPException, Response
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
-from app.main import app, health
+from app import models
+from app.database import Base
+from app.main import app, dev_login, health
 from app.schemas import BoardStateSave
+
+
+def _db_session():
+    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+    Base.metadata.create_all(bind=engine)
+    testing_session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    return testing_session()
 
 
 def test_health_and_routes():
@@ -24,6 +36,42 @@ def test_state_contract():
         "expected_version": 1,
     })
     assert state.nodes[0].title == "Nodo"
+
+
+def test_dev_login_is_disabled_by_default(monkeypatch):
+    monkeypatch.delenv("E2E_AUTH_BYPASS", raising=False)
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    db = _db_session()
+
+    with pytest.raises(HTTPException) as exc:
+        dev_login(Response(), db)
+
+    assert exc.value.status_code == 404
+
+
+def test_dev_login_creates_session_when_enabled(monkeypatch):
+    monkeypatch.setenv("E2E_AUTH_BYPASS", "1")
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    db = _db_session()
+    response = Response()
+
+    user = dev_login(response, db)
+
+    assert user.email == "e2e@huginn.local"
+    assert db.query(models.User).count() == 1
+    assert db.query(models.Session).count() == 1
+    assert "session=" in response.headers["set-cookie"]
+
+
+def test_dev_login_stays_disabled_in_production(monkeypatch):
+    monkeypatch.setenv("E2E_AUTH_BYPASS", "1")
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    db = _db_session()
+
+    with pytest.raises(HTTPException) as exc:
+        dev_login(Response(), db)
+
+    assert exc.value.status_code == 404
 
 
 def test_catch_all_source_ordering():

@@ -86,6 +86,7 @@ export function NodeCard({ node, T, theme, selected, opacity, onSelect, onStartD
       {/* Menú añadir */}
       {menuOpen && (
         <div
+          data-export-exclude="true"
           className="absolute right-2 top-10 z-20 rounded-xl overflow-hidden text-xs w-44"
           style={{ background: T.field, border: `1px solid ${T.fieldBorder}`, boxShadow: "0 14px 30px -12px rgba(0,0,0,.6)" }}
           onMouseDown={(e) => e.stopPropagation()}

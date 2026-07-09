@@ -24,6 +24,11 @@ export async function waitForBoardLoaded(page: Page) {
   await expect(page.getByTestId("save-status")).toHaveText("guardado", { timeout: 15_000 });
 }
 
+export async function loginForE2E(page: Page) {
+  const response = await page.request.post("/api/auth/dev-login");
+  expect(response.ok()).toBeTruthy();
+}
+
 /**
  * Abre el modal de tags de un nodo: despliega el menú del nodo (botón "+") y
  * hace click en la entrada "Tags". Recibe el data-testid completo del nodo
@@ -75,6 +80,7 @@ export async function createCardNodeAndGetId(page: Page): Promise<string> {
  * vista del Studio, y espera a que el board esté cargado.
  */
 export async function setupStudioAndBoard(page: Page) {
+  await loginForE2E(page);
   await page.goto("/");
   // El Home puede estar vacío (empty-create-studio) o tener Studios (create-studio-card).
   // Esperar cualquiera de los dos.
@@ -108,6 +114,7 @@ export async function setupStudioAndBoard(page: Page) {
  * al canvas. Retorna los IDs de studio, folder y board.
  */
 export async function setupStudioFolderAndBoard(page: Page) {
+  await loginForE2E(page);
   await page.goto("/");
   // Manejar tanto el estado vacío como el que ya tiene Studios
   const emptyBtn = page.getByTestId("empty-create-studio");

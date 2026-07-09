@@ -1,5 +1,8 @@
 import { defineConfig, devices } from "@playwright/test";
 
+const webPort = Number(process.env.E2E_WEB_PORT ?? 5174);
+const webUrl = `http://127.0.0.1:${webPort}`;
+
 /**
  * Config de Playwright para Huginn.
  *
@@ -18,7 +21,7 @@ export default defineConfig({
   workers: 1,
   reporter: "list",
   use: {
-    baseURL: "http://127.0.0.1:5174",
+    baseURL: webUrl,
     trace: "on-first-retry",
   },
   projects: [
@@ -33,7 +36,10 @@ export default defineConfig({
       // desarrollo normal (donde la variable no está seteada).
       command: "rm -rf e2e/.db && mkdir -p e2e/.db && npm run dev:api",
       url: "http://127.0.0.1:8001/docs",
-      env: { NODEBOARD_DB: "sqlite:///./e2e/.db/nodeboard.test.db" },
+      env: {
+        NODEBOARD_DB: "sqlite:///./e2e/.db/nodeboard.test.db",
+        E2E_AUTH_BYPASS: "1",
+      },
       // Nunca reutilizar un server preexistente en 8001 (ni en CI ni en local):
       // si Playwright reusara un `npm run dev` de desarrollo, los tests pegarían
       // contra la DB de dev y se perdería el aislamiento. Con `false`, si el
@@ -44,9 +50,9 @@ export default defineConfig({
       timeout: 120_000,
     },
     {
-      command: "npm run dev:web",
-      url: "http://127.0.0.1:5174",
-      reuseExistingServer: !process.env.CI,
+      command: `VITE_DEV_PORT=${webPort} npm run dev:web`,
+      url: webUrl,
+      reuseExistingServer: !process.env.CI && !process.env.E2E_WEB_PORT,
       timeout: 120_000,
     },
   ],

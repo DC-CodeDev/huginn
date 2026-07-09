@@ -175,6 +175,10 @@ def _is_production() -> bool:
     return _environment() == "production"
 
 
+def _e2e_auth_bypass_enabled() -> bool:
+    return not _is_production() and _is_true(os.getenv("E2E_AUTH_BYPASS"))
+
+
 def _cookie_secure() -> bool:
     override = os.getenv("COOKIE_SECURE")
     if override is not None:
@@ -373,6 +377,39 @@ def login(payload: schemas.LoginRequest, response: Response, db: Session = Depen
 
     session = auth.create_session(db, user)
 
+    response.set_cookie(
+        key=_COOKIE_SESSION,
+        value=session.id,
+        **_session_cookie_options(),
+    )
+    return schemas.UserOut.model_validate(user)
+
+
+@app.post("/api/auth/dev-login", response_model=schemas.UserOut)
+def dev_login(response: Response, db: Session = Depends(get_db)):
+    """Crea una sesión local solo cuando E2E_AUTH_BYPASS=1 y no es producción."""
+    if not _e2e_auth_bypass_enabled():
+        raise HTTPException(404, "No encontrado")
+
+    email = os.getenv("E2E_USER_EMAIL", "e2e@huginn.local")
+    user = db.scalar(
+        select(models.User).where(
+            models.User.email == email,
+            models.User.auth_provider == "e2e",
+        )
+    )
+    if not user:
+        user = models.User(
+            email=email,
+            name=os.getenv("E2E_USER_NAME", "E2E User"),
+            avatar_url="",
+            auth_provider="e2e",
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+
+    session = auth.create_session(db, user)
     response.set_cookie(
         key=_COOKIE_SESSION,
         value=session.id,

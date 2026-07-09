@@ -3,6 +3,10 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { VitePWA } from "vite-plugin-pwa";
 
+declare const process: { env: Record<string, string | undefined> };
+
+const devPort = Number(process.env.VITE_DEV_PORT ?? 5174);
+
 export default defineConfig({
   plugins: [
     react(),
@@ -34,7 +38,7 @@ export default defineConfig({
   ],
   server: {
     host: "127.0.0.1",
-    port: 5174,
+    port: devPort,
     proxy: {
       "/api": "http://127.0.0.1:8001",
     },

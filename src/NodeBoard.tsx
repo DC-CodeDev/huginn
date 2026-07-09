@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import {
   Plus, Trash2, Moon, Sun, Spline, Minus, ZoomIn, ZoomOut, Maximize2, Clock,
-  ArrowLeft, Filter, Settings, CircleUser, Magnet,
+  ArrowLeft, Filter, Settings, CircleUser, Magnet, Download, LoaderCircle,
 } from "lucide-react";
 import { api, useBoardPersistence } from "./api";
 import { PORT_COLORS } from "./types";
@@ -20,6 +20,7 @@ import { ProfileMenu } from "./components/ProfileMenu";
 import { useAuth } from "./lib/auth-context";
 import { computeNodeOpacity, type FilterMode } from "./lib/filter";
 import { usePwa } from "./lib/pwa";
+import { exportBoardToPng } from "./lib/board-export";
 
 /* ------------------------------------------------------------------ */
 /*  Constantes de geometría y tema                                     */
@@ -76,6 +77,7 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
   const [showHelp, setShowHelp] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [exportingPng, setExportingPng] = useState(false);
 
   const [clipboard, setClipboard] = useState<Node[] | null>(null);
   const lastPasteOffset = useRef<{ dx: number; dy: number } | null>(null);
@@ -103,6 +105,7 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
   viewRef.current = view;
 
   const canvasRef = useRef<HTMLDivElement>(null);
+  const worldRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<DragState>(null);
   const groupDragMovedRef = useRef(false);
   const nodesRef = useRef(nodes);
@@ -435,6 +438,25 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
 
   const selectedEdge = selectedEdgeId ? edges.find((e) => e.id === selectedEdgeId) : null;
 
+  const handleExportPng = useCallback(async () => {
+    if (exportingPng || nodes.length === 0 || !canvasRef.current || !worldRef.current) return;
+    setExportingPng(true);
+    try {
+      await exportBoardToPng({
+        canvasEl: canvasRef.current,
+        nodes,
+        boardName,
+        theme: T,
+        showGrid,
+      });
+    } catch (error) {
+      console.error("No se pudo exportar el board como PNG", error);
+      window.alert("No se pudo exportar el board como PNG.");
+    } finally {
+      setExportingPng(false);
+    }
+  }, [T, boardName, exportingPng, nodes, showGrid]);
+
   // Opacidad por nodo según el filtro de tags
   const nodeOpacities = useMemo(() => {
     const map: Record<string, number> = {};
@@ -448,6 +470,7 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
   return (
     <div
       ref={canvasRef}
+      data-testid="board-canvas"
       className="relative w-full app-dvh overflow-hidden select-none"
       style={{
         background: T.bg,
@@ -479,6 +502,8 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
     >
       {/* ---------- Capa transformada (mundo) ---------- */}
       <div
+        ref={worldRef}
+        data-testid="board-world"
         className="absolute top-0 left-0"
         style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.z})`, transformOrigin: "0 0" }}
       >
@@ -504,6 +529,7 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
           ))}
           {pendingPos && (
             <path
+              data-export-exclude="true"
               d={edgePath(pendingPos, { ...mouseWorld, side: "left" }, defaultCurved)}
               stroke={pendingPos.color} strokeWidth={1.6} strokeDasharray="6 6" fill="none" opacity={0.9}
             />
@@ -563,6 +589,7 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
         if (w < 3 && h < 3) return null;
         return (
           <div
+            data-export-exclude="true"
             className="absolute z-20 pointer-events-none"
             style={{
               left: l, top: t, width: w, height: h,
@@ -576,34 +603,39 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
 
       {/* ---------- Modal de tags ---------- */}
       {tagsNodeObj && (
-        <TagsModal
-          T={T}
-          theme={theme}
-          boardId={boardId}
-          nodeTitle={tagsNodeObj.title}
-          tags={tagsNodeObj.tags}
-          localBoardTags={localBoardTags}
-          setTags={(tags) => updateNode(tagsNodeObj.id, (n) => ({ ...n, tags }))}
-          onClose={() => setTagsNode(null)}
-        />
+        <div data-export-exclude="true" className="contents">
+          <TagsModal
+            T={T}
+            theme={theme}
+            boardId={boardId}
+            nodeTitle={tagsNodeObj.title}
+            tags={tagsNodeObj.tags}
+            localBoardTags={localBoardTags}
+            setTags={(tags) => updateNode(tagsNodeObj.id, (n) => ({ ...n, tags }))}
+            onClose={() => setTagsNode(null)}
+          />
+        </div>
       )}
 
       {/* ---------- Panel de filtro por tags ---------- */}
       {filterOpen && (
-        <FilterPanel
-          T={T}
-          allBoardTags={localBoardTags}
-          filterTags={filterTags}
-          filterMode={filterMode}
-          onChangeFilterTags={setFilterTags}
-          onChangeFilterMode={setFilterMode}
-          onClose={() => setFilterOpen(false)}
-        />
+        <div data-export-exclude="true" className="contents">
+          <FilterPanel
+            T={T}
+            allBoardTags={localBoardTags}
+            filterTags={filterTags}
+            filterMode={filterMode}
+            onChangeFilterTags={setFilterTags}
+            onChangeFilterMode={setFilterMode}
+            onClose={() => setFilterOpen(false)}
+          />
+        </div>
       )}
 
       {/* ---------- Menú contextual de colores ---------- */}
       {colorMenu && (
         <div
+          data-export-exclude="true"
           className="absolute z-30 flex flex-col gap-1.5 rounded-2xl px-3 py-2"
           style={{
             left: colorMenu.x, top: colorMenu.y,
@@ -668,6 +700,7 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
       {/* ---------- Confirmación de eliminación de puerto ---------- */}
       {deletePortConfirm && deletePortConfirm.step === "confirm" && (
         <div
+          data-export-exclude="true"
           className="absolute inset-0 z-50 flex items-center justify-center"
           style={{ background: "rgba(0,0,0,.5)" }}
           onClick={() => setDeletePortConfirm(null)}
@@ -705,6 +738,7 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
 
       {deletePortConfirm && deletePortConfirm.step === "final" && (
         <div
+          data-export-exclude="true"
           className="absolute inset-0 z-50 flex items-center justify-center"
           style={{ background: "rgba(0,0,0,.5)" }}
           onClick={() => setDeletePortConfirm(null)}
@@ -754,6 +788,7 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
 
       {/* ---------- Barra de herramientas ---------- */}
       <div
+        data-export-exclude="true"
         className="absolute app-safe-top-left flex items-center gap-1 rounded-2xl px-2 py-1.5 max-w-[calc(100%-32px-var(--safe-left)-var(--safe-right))]"
         style={{ background: T.card, border: `1px solid ${T.cardBorder}`, boxShadow: "0 14px 34px -14px rgba(0,0,0,.6)" }}
       >
@@ -793,6 +828,15 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
         <ToolBtn T={T} testId="snap-toggle" label={snapEnabled ? "Snap: activado" : "Snap: desactivado"} onClick={() => { const next = !snapEnabled; if (!next) snapTargetRef.current = null; snapEnabledRef.current = next; setSnapEnabled(next); }}>
           <span style={{ opacity: snapEnabled ? 1 : 0.35 }}><Magnet size={16} /></span>
         </ToolBtn>
+        <ToolBtn
+          T={T}
+          testId="export-png"
+          label={exportingPng ? "Exportando PNG" : "Exportar PNG"}
+          onClick={handleExportPng}
+          disabled={exportingPng || nodes.length === 0}
+        >
+          {exportingPng ? <LoaderCircle size={16} className="animate-spin" /> : <Download size={16} />}
+        </ToolBtn>
         <Sep T={T} />
         <ToolBtn T={T} label="Alejar" onClick={() => setView((v) => ({ ...v, z: Math.max(0.25, v.z * 0.9) }))}><ZoomOut size={16} /></ToolBtn>
         <span className="text-xs w-10 text-center" style={{ color: T.sub }}>{Math.round(view.z * 100)}%</span>
@@ -806,6 +850,7 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
       {/* ---------- Barra de acciones de selección ---------- */}
       {(selectedNodeIds.length > 0 || selectedEdgeId) && (
         <div
+          data-export-exclude="true"
           className="absolute app-safe-bottom-center flex items-center gap-1 rounded-2xl px-2 py-1.5"
           style={{ background: T.card, border: `1px solid ${T.cardBorder}`, boxShadow: "0 14px 34px -14px rgba(0,0,0,.6)" }}
         >
@@ -831,34 +876,39 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
 
       {/* ---------- Modal de ajustes ---------- */}
       {settingsOpen && (
-        <SettingsModal
-          T={T} theme={theme} mode="board"
-          showGrid={showGrid}
-          defaultCurved={defaultCurved}
-          showHelp={showHelp}
-          onChangeShowGrid={setShowGrid}
-          onChangeDefaultCurved={setDefaultCurved}
-          onChangeShowHelp={setShowHelp}
-          onToggleTheme={onToggleTheme}
-          onReset={() => { setShowGrid(true); setDefaultCurved(true); setShowHelp(true); setView({ x: 40, y: 20, z: 1 }); }}
-          onClose={() => setSettingsOpen(false)}
-        />
+        <div data-export-exclude="true" className="contents">
+          <SettingsModal
+            T={T} theme={theme} mode="board"
+            showGrid={showGrid}
+            defaultCurved={defaultCurved}
+            showHelp={showHelp}
+            onChangeShowGrid={setShowGrid}
+            onChangeDefaultCurved={setDefaultCurved}
+            onChangeShowHelp={setShowHelp}
+            onToggleTheme={onToggleTheme}
+            onReset={() => { setShowGrid(true); setDefaultCurved(true); setShowHelp(true); setView({ x: 40, y: 20, z: 1 }); }}
+            onClose={() => setSettingsOpen(false)}
+          />
+        </div>
       )}
 
       {/* ---------- Menú de perfil ---------- */}
       {profileOpen && user && (
-        <ProfileMenu
-          T={T} theme={theme}
-          user={user}
-          onLogout={logout}
-          onCloseProfile={onBack}
-          onClose={() => setProfileOpen(false)}
-        />
+        <div data-export-exclude="true" className="contents">
+          <ProfileMenu
+            T={T} theme={theme}
+            user={user}
+            onLogout={logout}
+            onCloseProfile={onBack}
+            onClose={() => setProfileOpen(false)}
+          />
+        </div>
       )}
 
       {/* ---------- Conflicto de versión ---------- */}
       {conflict && !reloadConfirm && (
         <div
+          data-export-exclude="true"
           className="absolute app-safe-top-right flex flex-col items-end gap-2 z-40 max-w-xs"
           style={{ top: "calc(var(--safe-top, 0px) + 8px)" }}
         >
@@ -889,6 +939,7 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
       {/* ---------- Confirmación de recarga ---------- */}
       {reloadConfirm && (
         <div
+          data-export-exclude="true"
           className="absolute inset-0 z-50 flex items-center justify-center"
           style={{ background: "rgba(0,0,0,.5)" }}
           onClick={() => setReloadConfirm(false)}
@@ -927,7 +978,7 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
 
       {/* ---------- Ayuda ---------- */}
       {showHelp && (
-        <div className="absolute app-safe-bottom-left text-[11px] leading-relaxed max-w-xs" style={{ color: T.sub }}>
+        <div data-export-exclude="true" className="absolute app-safe-bottom-left text-[11px] leading-relaxed max-w-xs" style={{ color: T.sub }}>
           Doble clic en el lienzo: nuevo nodo · Clic en un punto de color: iniciar/terminar conexión ·
           Botón derecho en un punto: elegir color · Rueda: zoom · Arrastrar fondo: mover lienzo ·
           Ctrl+arrastrar fondo: selección múltiple · Snap magnético al arrastrar nodos
