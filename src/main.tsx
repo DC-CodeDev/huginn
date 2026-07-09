@@ -14,6 +14,7 @@ import { PwaProvider } from "./lib/pwa";
 import { THEMES } from "./lib/theme";
 import { ThemeContext } from "./lib/theme-context";
 import type { ThemeCtx } from "./lib/theme-context";
+import "bylgja/variants/pressable.css";
 import "./styles.css";
 
 type View =
