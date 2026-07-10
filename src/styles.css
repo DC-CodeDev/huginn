@@ -55,6 +55,10 @@ html, body, #root {
 }
 button, input, textarea { font: inherit; }
 
+.huginn-fade-scale-origin-top-right {
+  transform-origin: top right;
+}
+
 .app-dvh {
   min-height: var(--app-dvh);
 }

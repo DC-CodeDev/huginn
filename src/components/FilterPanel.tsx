@@ -1,9 +1,11 @@
+import { useFadeScale } from "bylgja";
 import { type Theme } from "../lib/theme";
 import { FilterX, Filter } from "lucide-react";
 import type { FilterMode } from "../lib/filter";
 import { PressableButton } from "./PressableButton";
 
 interface FilterPanelProps {
+  show: boolean;
   T: Theme;
   allBoardTags: string[];
   filterTags: string[];
@@ -14,6 +16,7 @@ interface FilterPanelProps {
 }
 
 export function FilterPanel({
+  show,
   T,
   allBoardTags,
   filterTags,
@@ -22,6 +25,11 @@ export function FilterPanel({
   onChangeFilterMode,
   onClose,
 }: FilterPanelProps) {
+  const fadeScale = useFadeScale({
+    show,
+    className: "absolute top-4 right-4 z-30 w-56 huginn-fade-scale-origin-top-right",
+  });
+
   const toggleTag = (tag: string) => {
     const key = tag.toLowerCase();
     const exists = filterTags.some((t) => t.toLowerCase() === key);
@@ -32,9 +40,10 @@ export function FilterPanel({
     }
   };
 
-  return (
+  return fadeScale.render(
     <div
-      className="absolute top-4 right-4 z-30 rounded-2xl w-56 flex flex-col overflow-hidden"
+      data-export-exclude="true"
+      className="rounded-2xl w-full flex flex-col overflow-hidden"
       style={{
         background: T.card,
         border: `1px solid ${T.cardBorder}`,
@@ -117,6 +126,6 @@ export function FilterPanel({
           </div>
         )}
       </div>
-    </div>
+    </div>,
   );
 }

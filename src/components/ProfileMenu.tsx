@@ -1,9 +1,11 @@
+import { useFadeScale } from "bylgja";
 import { LogOut, CircleUser } from "lucide-react";
 import type { Theme } from "../lib/theme";
 import type { User } from "../lib/auth-context";
 import { PressableButton } from "./PressableButton";
 
 interface ProfileMenuProps {
+  show: boolean;
   T: Theme;
   theme: string;
   user: User;
@@ -12,49 +14,57 @@ interface ProfileMenuProps {
   onClose: () => void;
 }
 
-export function ProfileMenu({ T, theme, user, onLogout, onCloseProfile, onClose }: ProfileMenuProps) {
+export function ProfileMenu({ show, T, theme, user, onLogout, onCloseProfile, onClose }: ProfileMenuProps) {
+  const fadeScale = useFadeScale({
+    show,
+    className: `absolute top-0 right-0 z-50 origin-top-right ${show ? "" : "pointer-events-none"}`,
+  });
+
   return (
     <>
       {/* Backdrop */}
       <div
-        className="absolute inset-0 z-40"
-        onClick={onClose}
+        data-export-exclude="true"
+        className={`absolute inset-0 z-40 ${show ? "" : "pointer-events-none"}`}
+        onClick={show ? onClose : undefined}
       />
       {/* Dropdown */}
-      <div
-        className="absolute z-50 rounded-xl py-1.5 min-w-[180px]"
-        style={{
-          top: "calc(56px + var(--safe-top))",
-          left: "auto",
-          right: "calc(16px + var(--safe-right))",
-          background: T.card,
-          border: `1px solid ${T.cardBorder}`,
-          boxShadow: theme === "dark"
-            ? "0 18px 40px -14px rgba(0,0,0,.7), 0 4px 12px -6px rgba(0,0,0,.5)"
-            : "0 16px 34px -14px rgba(15,17,23,.35), 0 4px 10px -6px rgba(15,17,23,.15)",
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header info */}
-        <div className="flex items-center gap-2.5 px-3.5 py-2.5" style={{ borderBottom: `1px solid ${T.cardBorder}` }}>
-          <CircleUser size={20} style={{ color: T.sub }} />
-          <div className="flex flex-col">
-            <span className="text-sm font-medium leading-tight" style={{ color: T.text }}>{user.name}</span>
-            <span className="text-[11px]" style={{ color: T.sub }}>{user.email}</span>
+      {fadeScale.render(
+        <div
+          data-export-exclude="true"
+          className="rounded-xl py-1.5 min-w-[180px]"
+          style={{
+            marginTop: "calc(56px + var(--safe-top))",
+            marginRight: "calc(16px + var(--safe-right))",
+            background: T.card,
+            border: `1px solid ${T.cardBorder}`,
+            boxShadow: theme === "dark"
+              ? "0 18px 40px -14px rgba(0,0,0,.7), 0 4px 12px -6px rgba(0,0,0,.5)"
+              : "0 16px 34px -14px rgba(15,17,23,.35), 0 4px 10px -6px rgba(15,17,23,.15)",
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Header info */}
+          <div className="flex items-center gap-2.5 px-3.5 py-2.5" style={{ borderBottom: `1px solid ${T.cardBorder}` }}>
+            <CircleUser size={20} style={{ color: T.sub }} />
+            <div className="flex flex-col">
+              <span className="text-sm font-medium leading-tight" style={{ color: T.text }}>{user.name}</span>
+              <span className="text-[11px]" style={{ color: T.sub }}>{user.email}</span>
+            </div>
           </div>
-        </div>
 
-        {/* Actions */}
-        <div className="pt-1">
-          <PressableButton
-            className="flex items-center gap-2.5 w-full px-3.5 py-2 text-sm hover:opacity-80 transition-opacity"
-            style={{ color: "#F87171" }}
-            onClick={() => { onLogout(); onCloseProfile(); onClose(); }}
-          >
-            <LogOut size={15} /> Cerrar sesión
-          </PressableButton>
-        </div>
-      </div>
+          {/* Actions */}
+          <div className="pt-1">
+            <PressableButton
+              className="flex items-center gap-2.5 w-full px-3.5 py-2 text-sm hover:opacity-80 transition-opacity"
+              style={{ color: "#F87171" }}
+              onClick={() => { onLogout(); onCloseProfile(); onClose(); }}
+            >
+              <LogOut size={15} /> Cerrar sesión
+            </PressableButton>
+          </div>
+        </div>,
+      )}
     </>
   );
 }

@@ -619,19 +619,16 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
       )}
 
       {/* ---------- Panel de filtro por tags ---------- */}
-      {filterOpen && (
-        <div data-export-exclude="true" className="contents">
-          <FilterPanel
-            T={T}
-            allBoardTags={localBoardTags}
-            filterTags={filterTags}
-            filterMode={filterMode}
-            onChangeFilterTags={setFilterTags}
-            onChangeFilterMode={setFilterMode}
-            onClose={() => setFilterOpen(false)}
-          />
-        </div>
-      )}
+      <FilterPanel
+        show={filterOpen}
+        T={T}
+        allBoardTags={localBoardTags}
+        filterTags={filterTags}
+        filterMode={filterMode}
+        onChangeFilterTags={setFilterTags}
+        onChangeFilterMode={setFilterMode}
+        onClose={() => setFilterOpen(false)}
+      />
 
       {/* ---------- Menú contextual de colores ---------- */}
       {colorMenu && (
@@ -894,16 +891,15 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
       )}
 
       {/* ---------- Menú de perfil ---------- */}
-      {profileOpen && user && (
-        <div data-export-exclude="true" className="contents">
-          <ProfileMenu
-            T={T} theme={theme}
-            user={user}
-            onLogout={logout}
-            onCloseProfile={onBack}
-            onClose={() => setProfileOpen(false)}
-          />
-        </div>
+      {user && (
+        <ProfileMenu
+          show={profileOpen}
+          T={T} theme={theme}
+          user={user}
+          onLogout={logout}
+          onCloseProfile={onBack}
+          onClose={() => setProfileOpen(false)}
+        />
       )}
 
       {/* ---------- Conflicto de versión ---------- */}

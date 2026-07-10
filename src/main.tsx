@@ -15,6 +15,7 @@ import { THEMES } from "./lib/theme";
 import { ThemeContext } from "./lib/theme-context";
 import type { ThemeCtx } from "./lib/theme-context";
 import "bylgja/variants/pressable.css";
+import "bylgja/variants/fadeScale.css";
 import "./styles.css";
 
 type View =
@@ -125,9 +126,7 @@ function AppInner() {
               onClose={() => setSettingsOpen(false)}
             />
           )}
-          {profileOpen && (
-            <ProfileMenu T={T} theme={theme} user={user} onLogout={logout} onCloseProfile={closeProfile} onClose={() => setProfileOpen(false)} />
-          )}
+          <ProfileMenu show={profileOpen} T={T} theme={theme} user={user} onLogout={logout} onCloseProfile={closeProfile} onClose={() => setProfileOpen(false)} />
         </>
       );
     case "studio":
@@ -147,9 +146,7 @@ function AppInner() {
               onClose={() => setSettingsOpen(false)}
             />
           )}
-          {profileOpen && (
-            <ProfileMenu T={T} theme={theme} user={user} onLogout={logout} onCloseProfile={closeProfile} onClose={() => setProfileOpen(false)} />
-          )}
+          <ProfileMenu show={profileOpen} T={T} theme={theme} user={user} onLogout={logout} onCloseProfile={closeProfile} onClose={() => setProfileOpen(false)} />
         </>
       );
     case "folder":
@@ -169,9 +166,7 @@ function AppInner() {
               onClose={() => setSettingsOpen(false)}
             />
           )}
-          {profileOpen && (
-            <ProfileMenu T={T} theme={theme} user={user} onLogout={logout} onCloseProfile={closeProfile} onClose={() => setProfileOpen(false)} />
-          )}
+          <ProfileMenu show={profileOpen} T={T} theme={theme} user={user} onLogout={logout} onCloseProfile={closeProfile} onClose={() => setProfileOpen(false)} />
         </>
       );
     case "board":
