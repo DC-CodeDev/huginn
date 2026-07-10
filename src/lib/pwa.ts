@@ -3,6 +3,8 @@ import { createContext, createElement, useContext, useEffect, useMemo, useRef, u
 import type { SaveStatus } from "../api";
 import { useOnlineStatus } from "./connectivity";
 
+export const PWA_UPDATE_TIMEOUT_MS = 10_000;
+
 type PwaRegistrationOptions = {
   isProduction?: boolean;
   navigatorRef?: Pick<Navigator, "serviceWorker"> | undefined;
@@ -18,12 +20,21 @@ type PwaRegistrationHandle = {
 };
 
 type ControllerChangeTarget = Pick<ServiceWorkerContainer, "addEventListener" | "removeEventListener"> | undefined;
+export type PwaUpdateState = "idle" | "updating" | "error";
+
+type PwaRuntimeOptions = {
+  isProduction?: boolean;
+  navigatorRef?: Pick<Navigator, "serviceWorker"> | undefined;
+  reload?: () => void;
+};
 
 type PwaContextValue = {
   isOnline: boolean;
   saveStatus: SaveStatus | null;
   updateAvailable: boolean;
   updateDismissed: boolean;
+  updateState: PwaUpdateState;
+  updateError: string | null;
   updateRequiresConfirmation: boolean;
   canApplyUpdate: boolean;
   updateWarning: string | null;
@@ -109,56 +120,95 @@ export function subscribeToControllerChange(
   return () => target.removeEventListener("controllerchange", onChange);
 }
 
-export function PwaProvider({ children }: { children: ReactNode }) {
+export function PwaProvider({ children, runtime }: { children: ReactNode; runtime?: PwaRuntimeOptions }) {
   const isOnline = useOnlineStatus();
+  const isProduction = runtime?.isProduction ?? import.meta.env.PROD;
+  const serviceWorkerTarget = runtime?.navigatorRef?.serviceWorker ?? globalThis.navigator?.serviceWorker;
+  const reloadRef = useRef<() => void>(() => window.location.reload());
+  reloadRef.current = runtime?.reload ?? (() => window.location.reload());
   const [saveStatus, setSaveStatus] = useState<SaveStatus | null>(null);
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [updateDismissed, setUpdateDismissed] = useState(false);
+  const [updateState, setUpdateState] = useState<PwaUpdateState>("idle");
+  const [updateError, setUpdateError] = useState<string | null>(null);
   const [updateRequiresConfirmation, setUpdateRequiresConfirmation] = useState(false);
   const workboxRef = useRef<Workbox | null>(null);
   const shouldReloadOnControllerChange = useRef(false);
+  const hasReloadedForUpdate = useRef(false);
+  const updateTimeoutRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
+
+  const clearUpdateTimeout = () => {
+    if (updateTimeoutRef.current) {
+      window.clearTimeout(updateTimeoutRef.current);
+      updateTimeoutRef.current = null;
+    }
+  };
+
+  const failUpdate = (message: string) => {
+    clearUpdateTimeout();
+    shouldReloadOnControllerChange.current = false;
+    setUpdateState("error");
+    setUpdateError(message);
+  };
 
   useEffect(() => {
-    if (!("serviceWorker" in navigator) || !import.meta.env.PROD) {
+    if (!serviceWorkerTarget || !isProduction) {
       return;
     }
 
     const handleControllerChange = () => {
-      if (shouldReloadOnControllerChange.current) {
-        window.location.reload();
+      if (shouldReloadOnControllerChange.current && !hasReloadedForUpdate.current) {
+        hasReloadedForUpdate.current = true;
+        clearUpdateTimeout();
+        reloadRef.current();
       }
     };
 
-    return subscribeToControllerChange(navigator.serviceWorker, handleControllerChange);
-  }, []);
+    return subscribeToControllerChange(serviceWorkerTarget, handleControllerChange);
+  }, [isProduction, serviceWorkerTarget]);
 
   useEffect(() => {
     const registration = registerAppServiceWorker({
+      isProduction,
+      navigatorRef: runtime?.navigatorRef,
       onWaiting: (workbox) => {
         workboxRef.current = workbox;
         setUpdateAvailable(true);
         setUpdateDismissed(false);
+        setUpdateState("idle");
+        setUpdateError(null);
       },
     });
 
     workboxRef.current = registration?.workbox ?? null;
-  }, []);
+  }, [isProduction, runtime?.navigatorRef]);
+
+  useEffect(() => () => clearUpdateTimeout(), []);
 
   const value = useMemo<PwaContextValue>(() => ({
     isOnline,
     saveStatus,
     updateAvailable,
     updateDismissed,
+    updateState,
+    updateError,
     updateRequiresConfirmation,
-    canApplyUpdate: canApplyUpdate(saveStatus),
+    canApplyUpdate: canApplyUpdate(saveStatus) && updateState !== "updating",
     updateWarning: getUpdateWarning(saveStatus),
     setSaveStatus,
     dismissUpdate: () => {
+      if (updateState === "updating") {
+        return;
+      }
       setUpdateDismissed(true);
       setUpdateRequiresConfirmation(false);
     },
     requestUpdate: () => {
+      if (updateState === "updating") {
+        return;
+      }
       if (!workboxRef.current) {
+        failUpdate("No se pudo iniciar la actualización. Reintentá en unos segundos.");
         return;
       }
 
@@ -172,10 +222,25 @@ export function PwaProvider({ children }: { children: ReactNode }) {
       }
 
       shouldReloadOnControllerChange.current = true;
+      hasReloadedForUpdate.current = false;
       setUpdateRequiresConfirmation(false);
-      workboxRef.current.messageSkipWaiting();
+      setUpdateState("updating");
+      setUpdateError(null);
+
+      try {
+        workboxRef.current.messageSkipWaiting();
+      } catch (error) {
+        console.error("No se pudo enviar skipWaiting al service worker.", error);
+        failUpdate("No se pudo activar la nueva versión. Reintentá en unos segundos.");
+        return;
+      }
+
+      clearUpdateTimeout();
+      updateTimeoutRef.current = window.setTimeout(() => {
+        failUpdate("La actualización no pudo tomar control de esta pestaña. Reintentá o cerrá otras pestañas de Huginn y volvé a probar.");
+      }, PWA_UPDATE_TIMEOUT_MS);
     },
-  }), [isOnline, saveStatus, updateAvailable, updateDismissed, updateRequiresConfirmation]);
+  }), [isOnline, saveStatus, updateAvailable, updateDismissed, updateState, updateError, updateRequiresConfirmation]);
 
   return createElement(PwaContext.Provider, { value }, children);
 }

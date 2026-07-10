@@ -1,3 +1,5 @@
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { createElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const registerMock = vi.fn();
@@ -37,6 +39,7 @@ describe("registerAppServiceWorker", () => {
   });
 
   afterEach(() => {
+    vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
 
@@ -77,9 +80,7 @@ describe("registerAppServiceWorker", () => {
     const { registerAppServiceWorker } = await import("./pwa");
     const logger = { error: vi.fn(), info: vi.fn() };
     const onWaiting = vi.fn();
-    const reload = vi.fn();
     registerMock.mockResolvedValue(undefined);
-    vi.stubGlobal("window", { location: { reload } });
 
     const handle = registerAppServiceWorker({
       isProduction: true,
@@ -94,7 +95,6 @@ describe("registerAppServiceWorker", () => {
     expect(onWaiting).toHaveBeenCalledWith(instances[0], undefined);
     expect(logger.info).toHaveBeenCalled();
     expect(instances[0].messageSkipWaiting).not.toHaveBeenCalled();
-    expect(reload).not.toHaveBeenCalled();
   });
 
   it("reporta errores de registro", async () => {
@@ -155,5 +155,152 @@ describe("pwa update helpers", () => {
 
     unsubscribe();
     expect(remove).toHaveBeenCalledWith("controllerchange", onChange);
+  });
+});
+
+describe("PwaProvider update flow", () => {
+  const renderUpdateHarness = async () => {
+    const { PwaProvider, usePwa } = await import("./pwa");
+
+    function Harness() {
+      const pwa = usePwa();
+      return createElement(
+        "div",
+        null,
+        createElement("div", { "data-testid": "state" }, pwa.updateState),
+        createElement("div", { "data-testid": "error" }, pwa.updateError ?? ""),
+        createElement("div", { "data-testid": "dismissed" }, String(pwa.updateDismissed)),
+        createElement("button", {
+          type: "button",
+          onClick: pwa.requestUpdate,
+          disabled: !pwa.canApplyUpdate,
+        }, "Actualizar"),
+        createElement("button", {
+          type: "button",
+          onClick: pwa.dismissUpdate,
+          disabled: pwa.updateState === "updating",
+        }, "Más tarde"),
+        createElement("button", {
+          type: "button",
+          onClick: () => pwa.setSaveStatus("guardando"),
+        }, "Set saving"),
+      );
+    }
+
+    return render(createElement(PwaProvider, {
+      runtime: {
+        isProduction: true,
+        navigatorRef: { serviceWorker: serviceWorkerTarget as unknown as Navigator["serviceWorker"] },
+        reload,
+      },
+    }, createElement(Harness)));
+  };
+
+  let serviceWorkerTarget: {
+    listeners: Map<string, () => void>;
+    addEventListener: ReturnType<typeof vi.fn>;
+    removeEventListener: ReturnType<typeof vi.fn>;
+  };
+  let reload: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    registerMock.mockReset();
+    addEventListenerMock.mockReset();
+    instances.length = 0;
+    registerMock.mockResolvedValue(undefined);
+    reload = vi.fn();
+    serviceWorkerTarget = {
+      listeners: new Map(),
+      addEventListener: vi.fn((type: string, handler: () => void) => {
+        serviceWorkerTarget.listeners.set(type, handler);
+      }),
+      removeEventListener: vi.fn(),
+    };
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("pasa a updating y evita doble actualización", async () => {
+    await renderUpdateHarness();
+    act(() => instances[0].listeners.get("waiting")?.());
+
+    fireEvent.click(screen.getByRole("button", { name: "Actualizar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Actualizar" }));
+
+    expect(screen.getByTestId("state").textContent).toBe("updating");
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Actualizar" }).disabled).toBe(true);
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Más tarde" }).disabled).toBe(true);
+    expect(instances[0].messageSkipWaiting).toHaveBeenCalledTimes(1);
+  });
+
+  it("controllerchange recarga una sola vez", async () => {
+    await renderUpdateHarness();
+    act(() => instances[0].listeners.get("waiting")?.());
+    fireEvent.click(screen.getByRole("button", { name: "Actualizar" }));
+
+    act(() => serviceWorkerTarget.listeners.get("controllerchange")?.());
+    act(() => serviceWorkerTarget.listeners.get("controllerchange")?.());
+
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it("muestra error si messageSkipWaiting falla", async () => {
+    await renderUpdateHarness();
+    act(() => instances[0].listeners.get("waiting")?.());
+    instances[0].messageSkipWaiting.mockImplementationOnce(() => {
+      throw new Error("skipWaiting failed");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Actualizar" }));
+
+    expect(screen.getByTestId("state").textContent).toBe("error");
+    expect(screen.getByTestId("error").textContent).toContain("No se pudo activar");
+  });
+
+  it("el timeout devuelve control al usuario", async () => {
+    const { PWA_UPDATE_TIMEOUT_MS } = await import("./pwa");
+    await renderUpdateHarness();
+    act(() => instances[0].listeners.get("waiting")?.());
+    fireEvent.click(screen.getByRole("button", { name: "Actualizar" }));
+
+    act(() => vi.advanceTimersByTime(PWA_UPDATE_TIMEOUT_MS));
+
+    expect(screen.getByTestId("state").textContent).toBe("error");
+    expect(screen.getByTestId("error").textContent).toContain("cerrá otras pestañas");
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Actualizar" }).disabled).toBe(false);
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Más tarde" }).disabled).toBe(false);
+  });
+
+  it("limpia listeners y timers al desmontar", async () => {
+    const clearTimeoutSpy = vi.spyOn(window, "clearTimeout");
+    const { unmount } = await renderUpdateHarness();
+    act(() => instances[0].listeners.get("waiting")?.());
+    fireEvent.click(screen.getByRole("button", { name: "Actualizar" }));
+
+    unmount();
+
+    expect(serviceWorkerTarget.removeEventListener).toHaveBeenCalledWith(
+      "controllerchange",
+      serviceWorkerTarget.listeners.get("controllerchange"),
+    );
+    expect(clearTimeoutSpy).toHaveBeenCalled();
+  });
+
+  it("Más tarde cierra en idle y no actúa durante updating", async () => {
+    await renderUpdateHarness();
+    act(() => instances[0].listeners.get("waiting")?.());
+
+    fireEvent.click(screen.getByRole("button", { name: "Más tarde" }));
+    expect(screen.getByTestId("dismissed").textContent).toBe("true");
+
+    act(() => instances[0].listeners.get("waiting")?.());
+    fireEvent.click(screen.getByRole("button", { name: "Actualizar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Más tarde" }));
+    expect(screen.getByTestId("dismissed").textContent).toBe("false");
   });
 });
