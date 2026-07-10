@@ -16,6 +16,7 @@ import { Sep } from "./components/Sep";
 import { TagsModal } from "./components/TagsModal";
 import { FilterPanel } from "./components/FilterPanel";
 import { SettingsModal } from "./components/SettingsModal";
+import { AnimatedModal } from "./components/AnimatedModal";
 import { ProfileMenu } from "./components/ProfileMenu";
 import { useAuth } from "./lib/auth-context";
 import { PressableButton } from "./components/PressableButton";
@@ -68,6 +69,10 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
   const [tagsNode, setTagsNode] = useState<string | null>(null); // nodo con el modal de tags abierto
   const [colorMenu, setColorMenu] = useState<ColorMenu>(null); // {nodeId, portId, x, y} en coords de pantalla
   const [deletePortConfirm, setDeletePortConfirm] = useState<DeletePortConfirm>(null);
+  // Conserva el último estado no-nulo para poder renderizar el contenido del
+  // modal mientras corre su animación de salida (ya con el estado en null).
+  const deletePortViewRef = useRef(deletePortConfirm);
+  if (deletePortConfirm) deletePortViewRef.current = deletePortConfirm;
   const [defaultCurved, setDefaultCurved] = useState(true);
 
   const [filterOpen, setFilterOpen] = useState(false);
@@ -696,93 +701,87 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
       )}
 
       {/* ---------- Confirmación de eliminación de puerto ---------- */}
-      {deletePortConfirm && deletePortConfirm.step === "confirm" && (
-        <div
-          data-export-exclude="true"
-          className="absolute inset-0 z-50 flex items-center justify-center"
-          style={{ background: "rgba(0,0,0,.5)" }}
-          onClick={() => setDeletePortConfirm(null)}
-        >
-          <div
-            className="rounded-2xl px-6 py-5 shadow-xl max-w-sm w-full mx-4"
-            style={{ background: T.card, border: `1px solid ${T.cardBorder}` }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="font-semibold mb-2" style={{ color: T.text }}>¿Eliminar puerto?</div>
-            <div className="text-sm mb-4" style={{ color: T.sub }}>
-              {deletePortConfirm.edgeCount === 0
-                ? "Este puerto no tiene conexiones. Se eliminará sin afectar edges."
-                : `Este puerto tiene ${deletePortConfirm.edgeCount} conexión${deletePortConfirm.edgeCount !== 1 ? "es" : ""}. Eliminarlo también eliminará esa${deletePortConfirm.edgeCount !== 1 ? "s" : ""} ${deletePortConfirm.edgeCount} conexión${deletePortConfirm.edgeCount !== 1 ? "es" : ""}.`}
+      <AnimatedModal
+        show={!!deletePortConfirm}
+        onClose={() => setDeletePortConfirm(null)}
+        closeOnEscape={false}
+      >
+        {(() => {
+          // Contenido tomado del último estado no-nulo, para no vaciar el panel
+          // durante la animación de salida.
+          const dp = deletePortViewRef.current;
+          if (!dp) return null;
+          return dp.step === "confirm" ? (
+            <div
+              className="rounded-2xl px-6 py-5 shadow-xl max-w-sm w-full mx-4"
+              style={{ background: T.card, border: `1px solid ${T.cardBorder}` }}
+            >
+              <div className="font-semibold mb-2" style={{ color: T.text }}>¿Eliminar puerto?</div>
+              <div className="text-sm mb-4" style={{ color: T.sub }}>
+                {dp.edgeCount === 0
+                  ? "Este puerto no tiene conexiones. Se eliminará sin afectar edges."
+                  : `Este puerto tiene ${dp.edgeCount} conexión${dp.edgeCount !== 1 ? "es" : ""}. Eliminarlo también eliminará esa${dp.edgeCount !== 1 ? "s" : ""} ${dp.edgeCount} conexión${dp.edgeCount !== 1 ? "es" : ""}.`}
+              </div>
+              <div className="flex gap-2 justify-end">
+                <PressableButton
+                  className="px-4 py-2 rounded-xl text-sm font-medium"
+                  style={{ background: T.field, border: `1px solid ${T.fieldBorder}`, color: T.text }}
+                  onClick={() => setDeletePortConfirm(null)}
+                >
+                  Cancelar
+                </PressableButton>
+                <PressableButton
+                  className="px-4 py-2 rounded-xl text-sm font-medium"
+                  style={{ background: "#F87171", color: "#fff" }}
+                  onClick={() => setDeletePortConfirm((prev) => prev ? { ...prev, step: "final" } : null)}
+                >
+                  Continuar
+                </PressableButton>
+              </div>
             </div>
-            <div className="flex gap-2 justify-end">
-              <PressableButton
-                className="px-4 py-2 rounded-xl text-sm font-medium"
-                style={{ background: T.field, border: `1px solid ${T.fieldBorder}`, color: T.text }}
-                onClick={() => setDeletePortConfirm(null)}
-              >
-                Cancelar
-              </PressableButton>
-              <PressableButton
-                className="px-4 py-2 rounded-xl text-sm font-medium"
-                style={{ background: "#F87171", color: "#fff" }}
-                onClick={() => setDeletePortConfirm((prev) => prev ? { ...prev, step: "final" } : null)}
-              >
-                Continuar
-              </PressableButton>
+          ) : (
+            <div
+              className="rounded-2xl px-6 py-5 shadow-xl max-w-sm w-full mx-4"
+              style={{ background: T.card, border: `1px solid ${T.cardBorder}` }}
+            >
+              <div className="font-semibold mb-2" style={{ color: T.text }}>Confirmación final</div>
+              <div className="text-sm mb-4" style={{ color: T.sub }}>
+                Esta acción no se puede deshacer. ¿Estás seguro de que deseas eliminar este puerto{dp.edgeCount > 0 ? ` y sus ${dp.edgeCount} conexión${dp.edgeCount !== 1 ? "es" : ""}` : ""}?
+              </div>
+              <div className="flex gap-2 justify-end">
+                <PressableButton
+                  className="px-4 py-2 rounded-xl text-sm font-medium"
+                  style={{ background: T.field, border: `1px solid ${T.fieldBorder}`, color: T.text }}
+                  onClick={() => setDeletePortConfirm(null)}
+                >
+                  Cancelar
+                </PressableButton>
+                <PressableButton
+                  className="px-4 py-2 rounded-xl text-sm font-medium"
+                  style={{ background: "#F87171", color: "#fff" }}
+                  onClick={() => {
+                    const conf = deletePortConfirm;
+                    if (!conf) return;
+                    // 1) Eliminar edges asociadas al puerto
+                    setEdges((es) => es.filter(
+                      (e) => !(e.from.nodeId === conf.nodeId && e.from.portId === conf.portId)
+                          && !(e.to.nodeId === conf.nodeId && e.to.portId === conf.portId)
+                    ));
+                    // 2) Eliminar el puerto del nodo
+                    updateNode(conf.nodeId, (n) => ({
+                      ...n,
+                      ports: n.ports.filter((p) => p.id !== conf.portId),
+                    }));
+                    setDeletePortConfirm(null);
+                  }}
+                >
+                  Eliminar
+                </PressableButton>
+              </div>
             </div>
-          </div>
-        </div>
-      )}
-
-      {deletePortConfirm && deletePortConfirm.step === "final" && (
-        <div
-          data-export-exclude="true"
-          className="absolute inset-0 z-50 flex items-center justify-center"
-          style={{ background: "rgba(0,0,0,.5)" }}
-          onClick={() => setDeletePortConfirm(null)}
-        >
-          <div
-            className="rounded-2xl px-6 py-5 shadow-xl max-w-sm w-full mx-4"
-            style={{ background: T.card, border: `1px solid ${T.cardBorder}` }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="font-semibold mb-2" style={{ color: T.text }}>Confirmación final</div>
-            <div className="text-sm mb-4" style={{ color: T.sub }}>
-              Esta acción no se puede deshacer. ¿Estás seguro de que deseas eliminar este puerto{deletePortConfirm.edgeCount > 0 ? ` y sus ${deletePortConfirm.edgeCount} conexión${deletePortConfirm.edgeCount !== 1 ? "es" : ""}` : ""}?
-            </div>
-            <div className="flex gap-2 justify-end">
-              <PressableButton
-                className="px-4 py-2 rounded-xl text-sm font-medium"
-                style={{ background: T.field, border: `1px solid ${T.fieldBorder}`, color: T.text }}
-                onClick={() => setDeletePortConfirm(null)}
-              >
-                Cancelar
-              </PressableButton>
-              <PressableButton
-                className="px-4 py-2 rounded-xl text-sm font-medium"
-                style={{ background: "#F87171", color: "#fff" }}
-                onClick={() => {
-                  const conf = deletePortConfirm;
-                  if (!conf) return;
-                  // 1) Eliminar edges asociadas al puerto
-                  setEdges((es) => es.filter(
-                    (e) => !(e.from.nodeId === conf.nodeId && e.from.portId === conf.portId)
-                        && !(e.to.nodeId === conf.nodeId && e.to.portId === conf.portId)
-                  ));
-                  // 2) Eliminar el puerto del nodo
-                  updateNode(conf.nodeId, (n) => ({
-                    ...n,
-                    ports: n.ports.filter((p) => p.id !== conf.portId),
-                  }));
-                  setDeletePortConfirm(null);
-                }}
-              >
-                Eliminar
-              </PressableButton>
-            </div>
-          </div>
-        </div>
-      )}
+          );
+        })()}
+      </AnimatedModal>
 
       {/* ---------- Barra de herramientas ---------- */}
       <div
@@ -873,22 +872,19 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
       )}
 
       {/* ---------- Modal de ajustes ---------- */}
-      {settingsOpen && (
-        <div data-export-exclude="true" className="contents">
-          <SettingsModal
-            T={T} theme={theme} mode="board"
-            showGrid={showGrid}
-            defaultCurved={defaultCurved}
-            showHelp={showHelp}
-            onChangeShowGrid={setShowGrid}
-            onChangeDefaultCurved={setDefaultCurved}
-            onChangeShowHelp={setShowHelp}
-            onToggleTheme={onToggleTheme}
-            onReset={() => { setShowGrid(true); setDefaultCurved(true); setShowHelp(true); setView({ x: 40, y: 20, z: 1 }); }}
-            onClose={() => setSettingsOpen(false)}
-          />
-        </div>
-      )}
+      <SettingsModal
+        show={settingsOpen}
+        T={T} theme={theme} mode="board"
+        showGrid={showGrid}
+        defaultCurved={defaultCurved}
+        showHelp={showHelp}
+        onChangeShowGrid={setShowGrid}
+        onChangeDefaultCurved={setDefaultCurved}
+        onChangeShowHelp={setShowHelp}
+        onToggleTheme={onToggleTheme}
+        onReset={() => { setShowGrid(true); setDefaultCurved(true); setShowHelp(true); setView({ x: 40, y: 20, z: 1 }); }}
+        onClose={() => setSettingsOpen(false)}
+      />
 
       {/* ---------- Menú de perfil ---------- */}
       {user && (
@@ -934,44 +930,40 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
       )}
 
       {/* ---------- Confirmación de recarga ---------- */}
-      {reloadConfirm && (
+      <AnimatedModal
+        show={reloadConfirm}
+        onClose={() => setReloadConfirm(false)}
+        closeOnEscape={false}
+      >
         <div
-          data-export-exclude="true"
-          className="absolute inset-0 z-50 flex items-center justify-center"
-          style={{ background: "rgba(0,0,0,.5)" }}
-          onClick={() => setReloadConfirm(false)}
+          className="rounded-2xl px-6 py-5 shadow-xl max-w-sm w-full mx-4"
+          style={{ background: T.card, border: `1px solid ${T.cardBorder}` }}
         >
-          <div
-            className="rounded-2xl px-6 py-5 shadow-xl max-w-sm w-full mx-4"
-            style={{ background: T.card, border: `1px solid ${T.cardBorder}` }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="font-semibold mb-2" style={{ color: T.text }}>¿Recargar board?</div>
-            <div className="text-sm mb-4" style={{ color: T.sub }}>
-              Al recargar se descartarán los cambios locales no guardados.
-            </div>
-            <div className="flex gap-2 justify-end">
-              <PressableButton
-                className="px-4 py-2 rounded-xl text-sm font-medium"
-                style={{ background: T.field, border: `1px solid ${T.fieldBorder}`, color: T.text }}
-                onClick={() => setReloadConfirm(false)}
-              >
-                Cancelar
-              </PressableButton>
-              <PressableButton
-                className="px-4 py-2 rounded-xl text-sm font-medium"
-                style={{ background: "#F87171", color: "#fff" }}
-                onClick={async () => {
-                  const ok = await reloadBoardFromServer();
-                  if (ok) setReloadConfirm(false);
-                }}
-              >
-                Recargar
-              </PressableButton>
-            </div>
+          <div className="font-semibold mb-2" style={{ color: T.text }}>¿Recargar board?</div>
+          <div className="text-sm mb-4" style={{ color: T.sub }}>
+            Al recargar se descartarán los cambios locales no guardados.
+          </div>
+          <div className="flex gap-2 justify-end">
+            <PressableButton
+              className="px-4 py-2 rounded-xl text-sm font-medium"
+              style={{ background: T.field, border: `1px solid ${T.fieldBorder}`, color: T.text }}
+              onClick={() => setReloadConfirm(false)}
+            >
+              Cancelar
+            </PressableButton>
+            <PressableButton
+              className="px-4 py-2 rounded-xl text-sm font-medium"
+              style={{ background: "#F87171", color: "#fff" }}
+              onClick={async () => {
+                const ok = await reloadBoardFromServer();
+                if (ok) setReloadConfirm(false);
+              }}
+            >
+              Recargar
+            </PressableButton>
           </div>
         </div>
-      )}
+      </AnimatedModal>
 
       {/* ---------- Ayuda ---------- */}
       {showHelp && (

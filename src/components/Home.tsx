@@ -302,17 +302,16 @@ export function Home({ onStudioClick }: HomeProps) {
         </div>
       )}
 
-      {showCreate && (
-        <CreateStudioModal
-          onClose={() => setShowCreate(false)}
-          onCreated={handleCreated}
-        />
-      )}
+      <CreateStudioModal
+        show={showCreate}
+        onClose={() => setShowCreate(false)}
+        onCreated={handleCreated}
+      />
 
-      {deleteStudioId && (() => {
+      {(() => {
         const studio = studios?.find((s) => s.id === deleteStudioId);
-        if (!studio) return null;
         const handleDelete = async () => {
+          if (!deleteStudioId) return;
           try {
             await api.deleteStudio(deleteStudioId);
             setStudios((prev) => prev ? prev.filter((s) => s.id !== deleteStudioId) : prev);
@@ -323,10 +322,11 @@ export function Home({ onStudioClick }: HomeProps) {
         };
         return (
           <ConfirmDeleteModal
-            typeToConfirmName={studio.name}
+            show={!!deleteStudioId && !!studio}
+            typeToConfirmName={studio?.name ?? ""}
             title="Eliminar Estudio"
-            description={`Esta acción eliminará «${studio.name}» y todo su contenido (carpetas y boards) de forma permanente.`}
-            itemName={studio.name}
+            description={studio ? `Esta acción eliminará «${studio.name}» y todo su contenido (carpetas y boards) de forma permanente.` : ""}
+            itemName={studio?.name ?? ""}
             onConfirm={handleDelete}
             onCancel={() => setDeleteStudioId(null)}
           />

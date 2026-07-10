@@ -218,15 +218,14 @@ export function FolderView({ folderId, studioId, onBack, onBoardClick }: FolderV
         )}
       </div>
 
-      {deleteBoardId && (
-        <ConfirmDeleteModal
-          title="Eliminar Board"
-          description={`Esta acción eliminará «${deleteName}» y todo su contenido de forma permanente.`}
-          itemName={deleteName}
-          onConfirm={handleDeleteConfirm}
-          onCancel={() => setDeleteBoardId(null)}
-        />
-      )}
+      <ConfirmDeleteModal
+        show={!!deleteBoardId}
+        title="Eliminar Board"
+        description={`Esta acción eliminará «${deleteName}» y todo su contenido de forma permanente.`}
+        itemName={deleteName}
+        onConfirm={handleDeleteConfirm}
+        onCancel={() => setDeleteBoardId(null)}
+      />
     </div>
   );
 }

@@ -1,17 +1,27 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 import { api } from "../api";
 import type { Folder } from "../types";
+import { AnimatedModal } from "./AnimatedModal";
 
 interface CreateFolderModalProps {
+  show: boolean;
   studioId: string;
   onClose: () => void;
   onCreated: (folder: Folder) => void;
 }
 
-export function CreateFolderModal({ studioId, onClose, onCreated }: CreateFolderModalProps) {
+export function CreateFolderModal({ show, studioId, onClose, onCreated }: CreateFolderModalProps) {
   const [name, setName] = useState("");
   const [saving, setSaving] = useState(false);
+
+  // Montado permanentemente para animar; reseteamos el formulario al abrir.
+  useEffect(() => {
+    if (show) {
+      setName("");
+      setSaving(false);
+    }
+  }, [show]);
 
   const handleSubmit = async () => {
     if (!name.trim() || saving) return;
@@ -25,13 +35,9 @@ export function CreateFolderModal({ studioId, onClose, onCreated }: CreateFolder
   };
 
   return (
-    <div
-      data-testid="create-folder-modal"
-      className="fixed inset-0 z-50 flex items-center justify-center"
-      style={{ background: "rgba(0,0,0,0.6)" }}
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
-    >
+    <AnimatedModal show={show} onClose={onClose} closeOnEscape={false}>
       <div
+        data-testid="create-folder-modal"
         className="w-full max-w-sm mx-4 rounded-2xl p-6"
         style={{ background: "var(--card)", border: "1px solid var(--card-overlay-border)" }}
       >
@@ -64,6 +70,6 @@ export function CreateFolderModal({ studioId, onClose, onCreated }: CreateFolder
           {saving ? "Creando..." : "Crear Carpeta"}
         </button>
       </div>
-    </div>
+    </AnimatedModal>
   );
 }

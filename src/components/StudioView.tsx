@@ -323,23 +323,21 @@ export function StudioView({ studioId, onBack, onFolderClick, onBoardClick }: St
         </section>
       </div>
 
-      {showCreateFolder && (
-        <CreateFolderModal
-          studioId={studioId}
-          onClose={() => setShowCreateFolder(false)}
-          onCreated={handleFolderCreated}
-        />
-      )}
+      <CreateFolderModal
+        show={showCreateFolder}
+        studioId={studioId}
+        onClose={() => setShowCreateFolder(false)}
+        onCreated={handleFolderCreated}
+      />
 
-      {deleteTarget && (
-        <ConfirmDeleteModal
-          title={deleteTarget.kind === "board" ? "Eliminar Board" : "Eliminar Carpeta"}
-          description={`Esta acción eliminará «${deleteName}» de forma permanente.`}
-          itemName={deleteName}
-          onConfirm={handleDeleteConfirm}
-          onCancel={() => setDeleteTarget(null)}
-        />
-      )}
+      <ConfirmDeleteModal
+        show={!!deleteTarget}
+        title={deleteTarget?.kind === "board" ? "Eliminar Board" : "Eliminar Carpeta"}
+        description={`Esta acción eliminará «${deleteName}» de forma permanente.`}
+        itemName={deleteName}
+        onConfirm={handleDeleteConfirm}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </div>
   );
 }

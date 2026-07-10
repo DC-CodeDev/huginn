@@ -1,8 +1,10 @@
 import { X, Spline, Minus, Grid3x3, EyeOff, Eye, RotateCcw, Sun, Moon } from "lucide-react";
 import type { Theme } from "../lib/theme";
 import { PressableButton } from "./PressableButton";
+import { AnimatedModal } from "./AnimatedModal";
 
 interface SettingsModalProps {
+  show: boolean;
   T: Theme;
   theme: string;
   mode: "app" | "board";
@@ -18,7 +20,7 @@ interface SettingsModalProps {
 }
 
 export function SettingsModal({
-  T, theme, mode,
+  show, T, theme, mode,
   showGrid, defaultCurved, showHelp,
   onChangeShowGrid, onChangeDefaultCurved, onChangeShowHelp,
   onReset, onToggleTheme, onClose,
@@ -29,11 +31,7 @@ export function SettingsModal({
   const thumb = "absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform";
 
   return (
-    <div
-      className="absolute inset-0 z-50 flex items-center justify-center app-modal-backdrop"
-      style={{ background: "rgba(0,0,0,.45)" }}
-      onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
-    >
+    <AnimatedModal show={show} onClose={onClose} overlayClassName="app-modal-backdrop" closeOnEscape={false}>
       <div
         className="rounded-2xl w-[min(380px,90vw)] flex flex-col overflow-hidden"
         style={{
@@ -43,7 +41,6 @@ export function SettingsModal({
             ? "0 24px 60px -18px rgba(0,0,0,.8), 0 6px 16px -8px rgba(0,0,0,.6)"
             : "0 22px 50px -18px rgba(15,17,23,.4), 0 6px 14px -8px rgba(15,17,23,.2)",
         }}
-        onMouseDown={(e) => e.stopPropagation()}
       >
         {/* Header */}
         <div className="flex items-center gap-2 px-4 h-12 shrink-0" style={{ borderBottom: `1px solid ${T.cardBorder}` }}>
@@ -149,6 +146,6 @@ export function SettingsModal({
           )}
         </div>
       </div>
-    </div>
+    </AnimatedModal>
   );
 }

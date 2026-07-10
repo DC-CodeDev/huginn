@@ -1,8 +1,10 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Trash2, X } from "lucide-react";
 import { PressableButton } from "./PressableButton";
+import { AnimatedModal } from "./AnimatedModal";
 
 interface ConfirmDeleteModalProps {
+  show: boolean;
   /** Si se pasa, el modal exige escribir "BORRAR <typeToConfirmName>" para habilitar el botón */
   typeToConfirmName?: string;
   title: string;
@@ -13,6 +15,7 @@ interface ConfirmDeleteModalProps {
 }
 
 export function ConfirmDeleteModal({
+  show,
   typeToConfirmName,
   title,
   description,
@@ -21,15 +24,25 @@ export function ConfirmDeleteModal({
   onCancel,
 }: ConfirmDeleteModalProps) {
   const [inputValue, setInputValue] = useState("");
-  const required = typeToConfirmName ? `BORRAR ${typeToConfirmName}` : null;
+
+  // El input arranca vacío cada vez que se abre (antes se reseteaba al
+  // desmontarse; ahora el modal queda montado para animar entrada/salida).
+  useEffect(() => {
+    if (show) setInputValue("");
+  }, [show]);
+
+  // Congela el contenido mostrado mientras está visible, para que el texto no
+  // parpadee vacío durante la animación de salida cuando el estado del padre
+  // (el item a borrar) ya se puso en null.
+  const cacheRef = useRef({ typeToConfirmName, title, description, itemName });
+  if (show) cacheRef.current = { typeToConfirmName, title, description, itemName };
+  const view = cacheRef.current;
+
+  const required = view.typeToConfirmName ? `BORRAR ${view.typeToConfirmName}` : null;
   const canConfirm = required ? inputValue === required : true;
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center app-modal-backdrop"
-      style={{ background: "rgba(0,0,0,.55)" }}
-      onMouseDown={(e) => { if (e.target === e.currentTarget) onCancel(); }}
-    >
+    <AnimatedModal show={show} onClose={onCancel} overlayClassName="app-modal-backdrop" closeOnEscape={false}>
       <div
         className="rounded-2xl w-[min(400px,90vw)] flex flex-col overflow-hidden"
         style={{
@@ -37,13 +50,12 @@ export function ConfirmDeleteModal({
           border: "1px solid var(--card-border)",
           boxShadow: "0 24px 60px -18px rgba(0,0,0,.8), 0 6px 16px -8px rgba(0,0,0,.6)",
         }}
-        onMouseDown={(e) => e.stopPropagation()}
       >
         {/* Encabezado */}
         <div className="flex items-center gap-2 px-4 h-12 shrink-0" style={{ borderBottom: "1px solid #242938" }}>
           <Trash2 size={14} style={{ color: "#F87171" }} />
           <span className="text-sm font-medium flex-1" style={{ color: "var(--text)" }}>
-            {title}
+            {view.title}
           </span>
           <PressableButton className="p-1 rounded-lg hover:opacity-70" style={{ color: "var(--sub)" }} onClick={onCancel}>
             <X size={15} />
@@ -53,7 +65,7 @@ export function ConfirmDeleteModal({
         {/* Cuerpo */}
         <div className="px-4 py-4 flex flex-col gap-3">
           <p className="text-sm leading-relaxed" style={{ color: "var(--sub)" }}>
-            {description}
+            {view.description}
           </p>
 
           {required ? (
@@ -72,7 +84,7 @@ export function ConfirmDeleteModal({
             </>
           ) : (
             <p className="text-sm font-medium" style={{ color: "var(--text)" }}>
-              ¿Eliminar <span className="font-semibold" style={{ color: "#F87171" }}>"{itemName}"</span>?
+              ¿Eliminar <span className="font-semibold" style={{ color: "#F87171" }}>"{view.itemName}"</span>?
             </p>
           )}
         </div>
@@ -102,6 +114,6 @@ export function ConfirmDeleteModal({
           </button>
         </div>
       </div>
-    </div>
+    </AnimatedModal>
   );
 }

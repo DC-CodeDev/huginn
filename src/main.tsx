@@ -16,6 +16,8 @@ import { ThemeContext } from "./lib/theme-context";
 import type { ThemeCtx } from "./lib/theme-context";
 import "bylgja/variants/pressable.css";
 import "bylgja/variants/fadeScale.css";
+import "bylgja/variants/modalBackdrop.css";
+import "bylgja/variants/modalPanel.css";
 import "./styles.css";
 
 type View =
@@ -119,13 +121,12 @@ function AppInner() {
         <>
           {showBar && <AppBar T={T} theme={theme} onToggleTheme={toggleTheme} onSettingsClick={() => { setSettingsOpen(true); setProfileOpen(false); }} onProfileClick={() => { setProfileOpen((v) => !v); setSettingsOpen(false); }} />}
           <Home onStudioClick={navigateStudio} />
-          {settingsOpen && (
-            <SettingsModal
-              T={T} theme={theme} mode="app"
-              onToggleTheme={toggleTheme}
-              onClose={() => setSettingsOpen(false)}
-            />
-          )}
+          <SettingsModal
+            show={settingsOpen}
+            T={T} theme={theme} mode="app"
+            onToggleTheme={toggleTheme}
+            onClose={() => setSettingsOpen(false)}
+          />
           <ProfileMenu show={profileOpen} T={T} theme={theme} user={user} onLogout={logout} onCloseProfile={closeProfile} onClose={() => setProfileOpen(false)} />
         </>
       );
@@ -139,13 +140,12 @@ function AppInner() {
             onFolderClick={(folderId) => navigateFolder(folderId, view.studioId)}
             onBoardClick={(boardId) => navigateBoard(boardId, view)}
           />
-          {settingsOpen && (
-            <SettingsModal
-              T={T} theme={theme} mode="app"
-              onToggleTheme={toggleTheme}
-              onClose={() => setSettingsOpen(false)}
-            />
-          )}
+          <SettingsModal
+            show={settingsOpen}
+            T={T} theme={theme} mode="app"
+            onToggleTheme={toggleTheme}
+            onClose={() => setSettingsOpen(false)}
+          />
           <ProfileMenu show={profileOpen} T={T} theme={theme} user={user} onLogout={logout} onCloseProfile={closeProfile} onClose={() => setProfileOpen(false)} />
         </>
       );
@@ -159,13 +159,12 @@ function AppInner() {
             onBack={() => navigateStudio(view.studioId)}
             onBoardClick={(boardId) => navigateBoard(boardId, view)}
           />
-          {settingsOpen && (
-            <SettingsModal
-              T={T} theme={theme} mode="app"
-              onToggleTheme={toggleTheme}
-              onClose={() => setSettingsOpen(false)}
-            />
-          )}
+          <SettingsModal
+            show={settingsOpen}
+            T={T} theme={theme} mode="app"
+            onToggleTheme={toggleTheme}
+            onClose={() => setSettingsOpen(false)}
+          />
           <ProfileMenu show={profileOpen} T={T} theme={theme} user={user} onLogout={logout} onCloseProfile={closeProfile} onClose={() => setProfileOpen(false)} />
         </>
       );

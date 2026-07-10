@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 import { api } from "../api";
 import type { Studio, StudioColor } from "../types";
 import { STUDIO_COLORS } from "../types";
+import { AnimatedModal } from "./AnimatedModal";
 
 const STUDIO_COLOR_MAP: Record<StudioColor, string> = {
   terracota: "#C4847A",
@@ -14,14 +15,25 @@ const STUDIO_COLOR_MAP: Record<StudioColor, string> = {
 };
 
 interface CreateStudioModalProps {
+  show: boolean;
   onClose: () => void;
   onCreated: (studio: Studio) => void;
 }
 
-export function CreateStudioModal({ onClose, onCreated }: CreateStudioModalProps) {
+export function CreateStudioModal({ show, onClose, onCreated }: CreateStudioModalProps) {
   const [name, setName] = useState("");
   const [color, setColor] = useState<StudioColor>("azul");
   const [saving, setSaving] = useState(false);
+
+  // El modal queda montado para animar entrada/salida; reseteamos el formulario
+  // cada vez que se abre (antes se limpiaba al desmontarse).
+  useEffect(() => {
+    if (show) {
+      setName("");
+      setColor("azul");
+      setSaving(false);
+    }
+  }, [show]);
 
   const handleSubmit = async () => {
     if (!name.trim() || saving) return;
@@ -35,13 +47,9 @@ export function CreateStudioModal({ onClose, onCreated }: CreateStudioModalProps
   };
 
   return (
-    <div
-      data-testid="create-studio-modal"
-      className="fixed inset-0 z-50 flex items-center justify-center app-modal-backdrop"
-      style={{ background: "rgba(0,0,0,0.6)" }}
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
-    >
+    <AnimatedModal show={show} onClose={onClose} overlayClassName="app-modal-backdrop" closeOnEscape={false}>
       <div
+        data-testid="create-studio-modal"
         className="w-full max-w-sm mx-4 rounded-xl p-6 flex flex-col gap-5"
         style={{ background: "var(--card)", border: "1px solid var(--card-border)" }}
       >
@@ -127,6 +135,6 @@ export function CreateStudioModal({ onClose, onCreated }: CreateStudioModalProps
           </button>
         </div>
       </div>
-    </div>
+    </AnimatedModal>
   );
 }
