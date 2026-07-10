@@ -1,6 +1,7 @@
 import { LogOut, CircleUser } from "lucide-react";
 import type { Theme } from "../lib/theme";
 import type { User } from "../lib/auth-context";
+import { PressableButton } from "./PressableButton";
 
 interface ProfileMenuProps {
   T: Theme;
@@ -45,13 +46,13 @@ export function ProfileMenu({ T, theme, user, onLogout, onCloseProfile, onClose 
 
         {/* Actions */}
         <div className="pt-1">
-          <button
+          <PressableButton
             className="flex items-center gap-2.5 w-full px-3.5 py-2 text-sm hover:opacity-80 transition-opacity"
             style={{ color: "#F87171" }}
             onClick={() => { onLogout(); onCloseProfile(); onClose(); }}
           >
             <LogOut size={15} /> Cerrar sesión
-          </button>
+          </PressableButton>
         </div>
       </div>
     </>

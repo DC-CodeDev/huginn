@@ -1,6 +1,7 @@
 import { type Theme } from "../lib/theme";
 import { FilterX, Filter } from "lucide-react";
 import type { FilterMode } from "../lib/filter";
+import { PressableButton } from "./PressableButton";
 
 interface FilterPanelProps {
   T: Theme;
@@ -49,14 +50,14 @@ export function FilterPanel({
         <span className="text-xs font-medium flex-1" style={{ color: T.text }}>
           Filtrar por tags
         </span>
-        <button
+        <PressableButton
           className="p-1 rounded-lg hover:opacity-70"
           style={{ color: T.sub }}
           onClick={onClose}
           title="Cerrar filtro"
         >
           <FilterX size={14} />
-        </button>
+        </PressableButton>
       </div>
 
       <div className="px-3 py-2 flex flex-col gap-2.5 max-h-80 overflow-y-auto">

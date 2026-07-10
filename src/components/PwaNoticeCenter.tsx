@@ -1,4 +1,5 @@
 import { usePwa } from "../lib/pwa";
+import { PressableButton } from "./PressableButton";
 
 export function PwaNoticeCenter() {
   const {
@@ -57,7 +58,7 @@ export function PwaNoticeCenter() {
             <p className="app-notice-copy">El board ya está guardado. Podés actualizar cuando quieras.</p>
           )}
           <div className="app-notice-actions">
-            <button
+            <PressableButton
               type="button"
               data-testid="update-action"
               className="app-notice-btn app-notice-btn-primary"
@@ -66,15 +67,15 @@ export function PwaNoticeCenter() {
               title={!canApplyUpdate ? "Esperá a que termine el guardado." : undefined}
             >
               {updateRequiresConfirmation ? "Actualizar de todos modos" : "Actualizar"}
-            </button>
-            <button
+            </PressableButton>
+            <PressableButton
               type="button"
               data-testid="update-later"
               className="app-notice-btn"
               onClick={dismissUpdate}
             >
               Más tarde
-            </button>
+            </PressableButton>
           </div>
         </div>
       )}

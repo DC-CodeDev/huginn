@@ -18,6 +18,7 @@ import { FilterPanel } from "./components/FilterPanel";
 import { SettingsModal } from "./components/SettingsModal";
 import { ProfileMenu } from "./components/ProfileMenu";
 import { useAuth } from "./lib/auth-context";
+import { PressableButton } from "./components/PressableButton";
 import { computeNodeOpacity, type FilterMode } from "./lib/filter";
 import { usePwa } from "./lib/pwa";
 import { exportBoardToPng } from "./lib/board-export";
@@ -678,7 +679,7 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
             })}
           </div>
           <div className="h-px" style={{ background: T.cardBorder }} />
-          <button
+          <PressableButton
             className="flex items-center gap-1.5 text-xs rounded-xl px-2.5 py-1.5 transition-colors hover:opacity-80"
             style={{ color: "#F87171" }}
             onClick={() => {
@@ -693,7 +694,7 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
             }}
           >
             <Trash2 size={12} /> Eliminar puerto
-          </button>
+          </PressableButton>
         </div>
       )}
 
@@ -717,20 +718,20 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
                 : `Este puerto tiene ${deletePortConfirm.edgeCount} conexión${deletePortConfirm.edgeCount !== 1 ? "es" : ""}. Eliminarlo también eliminará esa${deletePortConfirm.edgeCount !== 1 ? "s" : ""} ${deletePortConfirm.edgeCount} conexión${deletePortConfirm.edgeCount !== 1 ? "es" : ""}.`}
             </div>
             <div className="flex gap-2 justify-end">
-              <button
+              <PressableButton
                 className="px-4 py-2 rounded-xl text-sm font-medium"
                 style={{ background: T.field, border: `1px solid ${T.fieldBorder}`, color: T.text }}
                 onClick={() => setDeletePortConfirm(null)}
               >
                 Cancelar
-              </button>
-              <button
+              </PressableButton>
+              <PressableButton
                 className="px-4 py-2 rounded-xl text-sm font-medium"
                 style={{ background: "#F87171", color: "#fff" }}
                 onClick={() => setDeletePortConfirm((prev) => prev ? { ...prev, step: "final" } : null)}
               >
                 Continuar
-              </button>
+              </PressableButton>
             </div>
           </div>
         </div>
@@ -753,14 +754,14 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
               Esta acción no se puede deshacer. ¿Estás seguro de que deseas eliminar este puerto{deletePortConfirm.edgeCount > 0 ? ` y sus ${deletePortConfirm.edgeCount} conexión${deletePortConfirm.edgeCount !== 1 ? "es" : ""}` : ""}?
             </div>
             <div className="flex gap-2 justify-end">
-              <button
+              <PressableButton
                 className="px-4 py-2 rounded-xl text-sm font-medium"
                 style={{ background: T.field, border: `1px solid ${T.fieldBorder}`, color: T.text }}
                 onClick={() => setDeletePortConfirm(null)}
               >
                 Cancelar
-              </button>
-              <button
+              </PressableButton>
+              <PressableButton
                 className="px-4 py-2 rounded-xl text-sm font-medium"
                 style={{ background: "#F87171", color: "#fff" }}
                 onClick={() => {
@@ -780,7 +781,7 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
                 }}
               >
                 Eliminar
-              </button>
+              </PressableButton>
             </div>
           </div>
         </div>
@@ -864,13 +865,13 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
               {selectedEdge.curved ? "Hacer recto" : "Hacer curvo"}
             </button>
           )}
-          <button
+          <PressableButton
             className="flex items-center gap-1.5 text-xs rounded-xl px-3 py-1.5 hover:opacity-80"
             style={{ background: "rgba(248,113,113,.12)", border: "1px solid rgba(248,113,113,.35)", color: "#F87171" }}
             onClick={deleteSelection}
           >
             <Trash2 size={14} /> Eliminar
-          </button>
+          </PressableButton>
         </div>
       )}
 
@@ -925,13 +926,13 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
                 Versión local esperada: {conflict.expectedVersion} · Versión actual del servidor: {conflict.currentVersion}
               </div>
             )}
-            <button
+            <PressableButton
               className="mt-2 px-3 py-1.5 rounded-xl text-xs font-medium transition-colors"
               style={{ background: "#F87171", color: "#fff" }}
               onClick={() => setReloadConfirm(true)}
             >
               Recargar board
-            </button>
+            </PressableButton>
           </div>
         </div>
       )}
@@ -954,14 +955,14 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
               Al recargar se descartarán los cambios locales no guardados.
             </div>
             <div className="flex gap-2 justify-end">
-              <button
+              <PressableButton
                 className="px-4 py-2 rounded-xl text-sm font-medium"
                 style={{ background: T.field, border: `1px solid ${T.fieldBorder}`, color: T.text }}
                 onClick={() => setReloadConfirm(false)}
               >
                 Cancelar
-              </button>
-              <button
+              </PressableButton>
+              <PressableButton
                 className="px-4 py-2 rounded-xl text-sm font-medium"
                 style={{ background: "#F87171", color: "#fff" }}
                 onClick={async () => {
@@ -970,7 +971,7 @@ export default function NodeBoard({ boardId, onBack, theme, onToggleTheme }: Nod
                 }}
               >
                 Recargar
-              </button>
+              </PressableButton>
             </div>
           </div>
         </div>

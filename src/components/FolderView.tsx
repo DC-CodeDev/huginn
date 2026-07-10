@@ -4,6 +4,7 @@ import { api } from "../api";
 import { renameBoard as renameBoardAction, deleteBoard as deleteBoardAction } from "../lib/board-actions";
 import type { Folder, BoardSummary } from "../types";
 import { ConfirmDeleteModal } from "./ConfirmDeleteModal";
+import { PressableButton } from "./PressableButton";
 
 function relativeTime(iso: string): string {
   const now = Date.now();
@@ -276,13 +277,13 @@ function BoardCard({ board, menuBoardId, renameBoardId, renameValue, onMenuToggl
         </div>
         {/* Three-dot menu */}
         <div data-menu-root="true" style={{ position: "relative" }} className="shrink-0">
-          <button
+          <PressableButton
             className="p-1 rounded-lg hover:opacity-70"
             style={{ color: "var(--sub)" }}
             onClick={(e) => { e.stopPropagation(); onMenuToggle(board.id); }}
           >
             <Ellipsis size={14} />
-          </button>
+          </PressableButton>
           {menuBoardId === board.id && (
             <div
               className="absolute right-0 top-7 z-20 rounded-xl overflow-hidden text-xs w-32"
@@ -293,20 +294,20 @@ function BoardCard({ board, menuBoardId, renameBoardId, renameValue, onMenuToggl
               }}
               onClick={(e) => e.stopPropagation()}
             >
-              <button
+              <PressableButton
                 className="flex items-center gap-1.5 w-full px-3 py-2 hover:opacity-80"
                 style={{ color: "var(--text)" }}
                 onClick={() => { onRenameStart(board.id, board.name); }}
               >
                 <FileText size={13} /> Renombrar
-              </button>
-              <button
+              </PressableButton>
+              <PressableButton
                 className="flex items-center gap-1.5 w-full px-3 py-2 hover:opacity-80"
                 style={{ color: "#F87171" }}
                 onClick={onDelete}
               >
                 <Trash2 size={13} /> Eliminar
-              </button>
+              </PressableButton>
             </div>
           )}
         </div>

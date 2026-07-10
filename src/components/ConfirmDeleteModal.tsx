@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Trash2, X } from "lucide-react";
+import { PressableButton } from "./PressableButton";
 
 interface ConfirmDeleteModalProps {
   /** Si se pasa, el modal exige escribir "BORRAR <typeToConfirmName>" para habilitar el botón */
@@ -44,9 +45,9 @@ export function ConfirmDeleteModal({
           <span className="text-sm font-medium flex-1" style={{ color: "var(--text)" }}>
             {title}
           </span>
-          <button className="p-1 rounded-lg hover:opacity-70" style={{ color: "var(--sub)" }} onClick={onCancel}>
+          <PressableButton className="p-1 rounded-lg hover:opacity-70" style={{ color: "var(--sub)" }} onClick={onCancel}>
             <X size={15} />
-          </button>
+          </PressableButton>
         </div>
 
         {/* Cuerpo */}
@@ -78,13 +79,13 @@ export function ConfirmDeleteModal({
 
         {/* Acciones */}
         <div className="flex items-center justify-end gap-2 px-4 py-3" style={{ borderTop: "1px solid #242938" }}>
-          <button
+          <PressableButton
             className="px-3 py-1.5 rounded-xl text-xs font-medium hover:opacity-80"
             style={{ background: "var(--field)", border: "1px solid var(--field-border)", color: "var(--sub)" }}
             onClick={onCancel}
           >
             Cancelar
-          </button>
+          </PressableButton>
           <button
             className="px-3 py-1.5 rounded-xl text-xs font-medium transition-opacity"
             style={{

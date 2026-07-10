@@ -1,5 +1,6 @@
 import { X, Spline, Minus, Grid3x3, EyeOff, Eye, RotateCcw, Sun, Moon } from "lucide-react";
 import type { Theme } from "../lib/theme";
+import { PressableButton } from "./PressableButton";
 
 interface SettingsModalProps {
   T: Theme;
@@ -49,9 +50,9 @@ export function SettingsModal({
           <span className="text-sm font-medium flex-1" style={{ color: T.text }}>
             Ajustes
           </span>
-          <button className="p-1 rounded-lg hover:opacity-70" style={{ color: T.sub }} onClick={onClose} title="Cerrar">
+          <PressableButton className="p-1 rounded-lg hover:opacity-70" style={{ color: T.sub }} onClick={onClose} title="Cerrar">
             <X size={15} />
-          </button>
+          </PressableButton>
         </div>
 
         {/* Body */}
@@ -130,13 +131,13 @@ export function SettingsModal({
               </div>
 
               {/* Reset */}
-              <button
+              <PressableButton
                 className="flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium mt-2 hover:opacity-85 transition-opacity"
                 style={{ background: "rgba(196,132,122,.12)", border: "1px solid rgba(196,132,122,.35)", color: "#C4847A" }}
                 onClick={onReset}
               >
                 <RotateCcw size={14} /> Restablecer valores predeterminados
-              </button>
+              </PressableButton>
             </>
           )}
 

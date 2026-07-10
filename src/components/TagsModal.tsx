@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { X, Tag, Plus, Loader2 } from "lucide-react";
 import { api } from "../api";
 import type { Theme } from "../lib/theme";
+import { PressableButton } from "./PressableButton";
 
 interface TagsModalProps {
   T: Theme;
@@ -121,9 +122,9 @@ export function TagsModal({ T, theme, boardId, nodeTitle, tags, localBoardTags, 
           <span className="text-sm font-medium flex-1 min-w-0 truncate" style={{ color: T.text }}>
             Tags · {nodeTitle || "Nodo"}
           </span>
-          <button className="p-1 rounded-lg hover:opacity-70" style={{ color: T.sub }} onClick={onClose} title="Cerrar">
+          <PressableButton className="p-1 rounded-lg hover:opacity-70" style={{ color: T.sub }} onClick={onClose} title="Cerrar">
             <X size={15} />
-          </button>
+          </PressableButton>
         </div>
 
         <div className="px-4 py-3 flex flex-col gap-3 overflow-y-auto">
@@ -135,7 +136,7 @@ export function TagsModal({ T, theme, boardId, nodeTitle, tags, localBoardTags, 
               tags.map((t) => (
                 <span key={t} className={chipBase} style={{ background: T.field, border: `1px solid ${T.fieldBorder}`, color: T.text }}>
                   {t}
-                  <button
+                  <PressableButton
                     className="rounded-full p-0.5 hover:opacity-70"
                     style={{ color: T.sub }}
                     onClick={() => removeTag(t)}
@@ -143,7 +144,7 @@ export function TagsModal({ T, theme, boardId, nodeTitle, tags, localBoardTags, 
                     data-testid={`tag-remove-${t}`}
                   >
                     <X size={11} />
-                  </button>
+                  </PressableButton>
                 </span>
               ))
             )}
@@ -163,14 +164,14 @@ export function TagsModal({ T, theme, boardId, nodeTitle, tags, localBoardTags, 
 
           {/* Crear nuevo */}
           {canCreate && (
-            <button
+            <PressableButton
               className="flex items-center gap-1.5 self-start rounded-full text-xs px-2.5 py-1.5 hover:opacity-85"
               style={{ background: "rgba(196,132,122,.14)", border: "1px solid rgba(196,132,122,.4)", color: "#C4847A" }}
               onClick={() => addTag(q)}
               data-testid="tags-create"
             >
               <Plus size={12} /> Crear: “{q}”
-            </button>
+            </PressableButton>
           )}
 
           {/* Sugerencias del tablero */}
@@ -194,7 +195,7 @@ export function TagsModal({ T, theme, boardId, nodeTitle, tags, localBoardTags, 
                 ) : (
                   <div className="flex flex-wrap gap-1.5">
                     {suggestions.map((t) => (
-                      <button
+                      <PressableButton
                         key={t}
                         className={suggBase}
                         style={{ background: T.field, border: `1px solid ${T.fieldBorder}`, color: T.text }}
@@ -202,7 +203,7 @@ export function TagsModal({ T, theme, boardId, nodeTitle, tags, localBoardTags, 
                         data-testid={`tag-suggest-${t}`}
                       >
                         {t}
-                      </button>
+                      </PressableButton>
                     ))}
                   </div>
                 )}

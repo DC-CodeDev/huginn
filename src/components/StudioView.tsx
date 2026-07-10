@@ -5,6 +5,7 @@ import { renameBoard as renameBoardAction, deleteBoard as deleteBoardAction } fr
 import type { Studio, Folder, BoardSummary } from "../types";
 import { CreateFolderModal } from "./CreateFolderModal";
 import { ConfirmDeleteModal } from "./ConfirmDeleteModal";
+import { PressableButton } from "./PressableButton";
 
 function relativeTime(iso: string): string {
   const now = Date.now();
@@ -211,13 +212,13 @@ export function StudioView({ studioId, onBack, onFolderClick, onBoardClick }: St
                     </div>
                     {/* Three-dot menu */}
                     <div data-menu-root="true" style={{ position: "relative" }} className="shrink-0">
-                      <button
+                      <PressableButton
                         className="p-1 rounded-lg hover:opacity-70"
                         style={{ color: "var(--sub)" }}
                         onClick={(e) => { e.stopPropagation(); setMenuTarget(menuTarget?.id === b.id && menuTarget?.kind === "board" ? null : { kind: "board", id: b.id }); }}
                       >
                         <Ellipsis size={14} />
-                      </button>
+                      </PressableButton>
                       {menuTarget?.kind === "board" && menuTarget.id === b.id && (
                         <div
                           className="absolute right-0 top-7 z-20 rounded-xl overflow-hidden text-xs w-32"
@@ -228,20 +229,20 @@ export function StudioView({ studioId, onBack, onFolderClick, onBoardClick }: St
                           }}
                           onClick={(e) => e.stopPropagation()}
                         >
-                          <button
+                          <PressableButton
                             className="flex items-center gap-1.5 w-full px-3 py-2 hover:opacity-80"
                             style={{ color: "var(--text)" }}
                             onClick={() => { setRenameValue(b.name); setRenameBoardId(b.id); setMenuTarget(null); }}
                           >
                             <FileText size={13} /> Renombrar
-                          </button>
-                          <button
+                          </PressableButton>
+                          <PressableButton
                             className="flex items-center gap-1.5 w-full px-3 py-2 hover:opacity-80"
                             style={{ color: "#F87171" }}
                             onClick={() => { setDeleteTarget({ kind: "board", id: b.id }); setMenuTarget(null); }}
                           >
                             <Trash2 size={13} /> Eliminar
-                          </button>
+                          </PressableButton>
                         </div>
                       )}
                     </div>
@@ -274,13 +275,13 @@ export function StudioView({ studioId, onBack, onFolderClick, onBoardClick }: St
                   </div>
                   {/* Three-dot menu */}
                   <div data-menu-root="true" style={{ position: "relative" }} className="shrink-0">
-                    <button
+                    <PressableButton
                       className="p-1 rounded-lg hover:opacity-70"
                       style={{ color: "var(--sub)" }}
                       onClick={(e) => { e.stopPropagation(); setMenuTarget(menuTarget?.id === f.id && menuTarget?.kind === "folder" ? null : { kind: "folder", id: f.id }); }}
                     >
                       <Ellipsis size={14} />
-                    </button>
+                    </PressableButton>
                     {menuTarget?.kind === "folder" && menuTarget.id === f.id && (
                       <div
                         className="absolute right-0 top-7 z-20 rounded-xl overflow-hidden text-xs w-32"
@@ -291,13 +292,13 @@ export function StudioView({ studioId, onBack, onFolderClick, onBoardClick }: St
                         }}
                         onClick={(e) => e.stopPropagation()}
                       >
-                        <button
+                        <PressableButton
                           className="flex items-center gap-1.5 w-full px-3 py-2 hover:opacity-80"
                           style={{ color: "#F87171" }}
                           onClick={() => { setDeleteTarget({ kind: "folder", id: f.id }); setMenuTarget(null); }}
                         >
                           <Trash2 size={13} /> Eliminar
-                        </button>
+                        </PressableButton>
                       </div>
                     )}
                   </div>

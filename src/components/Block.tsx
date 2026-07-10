@@ -4,6 +4,7 @@ import { X, Image as ImageIcon } from "lucide-react";
 import type { Block as BlockT } from "../types";
 import type { Theme } from "../lib/theme";
 import { MiniBtn } from "./MiniBtn";
+import { PressableButton } from "./PressableButton";
 
 interface BlockProps {
   block: BlockT;
@@ -17,13 +18,13 @@ export function Block({ block, T, update, remove }: BlockProps) {
 
   const wrap = (children: ReactNode) => (
     <div className="relative group rounded-xl" style={{ background: T.field, border: `1px solid ${T.fieldBorder}` }}>
-      <button
+      <PressableButton
         className="absolute -top-2 -right-2 z-10 rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
         style={{ background: T.card, border: `1px solid ${T.fieldBorder}`, color: T.sub }}
         onClick={remove} title="Quitar bloque"
       >
         <X size={11} />
-      </button>
+      </PressableButton>
       {children}
     </div>
   );
@@ -100,13 +101,13 @@ export function Block({ block, T, update, remove }: BlockProps) {
           <img src={block.src} alt="" className="w-full rounded-lg object-cover cursor-pointer" style={{ maxHeight: 180 }}
             onClick={() => fileRef.current?.click()} title="Clic para reemplazar" />
         ) : (
-          <button
+          <PressableButton
             className="w-full flex flex-col items-center gap-1.5 py-6 rounded-lg text-[11px]"
             style={{ color: T.sub, border: `1px dashed ${T.fieldBorder}` }}
             onClick={() => fileRef.current?.click()}
           >
             <ImageIcon size={18} /> Subir imagen
-          </button>
+          </PressableButton>
         )}
         <input
           ref={fileRef} type="file" accept="image/*" className="hidden"

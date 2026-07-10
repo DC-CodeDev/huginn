@@ -5,6 +5,7 @@ import type { Studio, StudioColor } from "../types";
 import { STUDIO_COLORS } from "../types";
 import { CreateStudioModal } from "./CreateStudioModal";
 import { ConfirmDeleteModal } from "./ConfirmDeleteModal";
+import { PressableButton } from "./PressableButton";
 
 const STUDIO_COLOR_MAP: Record<StudioColor, string> = {
   terracota: "#C4847A",
@@ -220,13 +221,13 @@ export function Home({ onStudioClick }: HomeProps) {
                       </span>
                       {/* Three-dot menu */}
                       <div data-menu-root="true" style={{ position: "relative" }}>
-                        <button
+                        <PressableButton
                           className="p-1 rounded-lg hover:opacity-70"
                           style={{ color: "var(--sub)" }}
                           onClick={(e) => { e.stopPropagation(); setMenuStudioId(menuStudioId === s.id ? null : s.id); }}
                         >
                           <Ellipsis size={16} />
-                        </button>
+                        </PressableButton>
                         {menuStudioId === s.id && (
                           <div
                             className="absolute right-0 top-8 z-20 rounded-xl overflow-hidden text-xs w-32"
@@ -237,13 +238,13 @@ export function Home({ onStudioClick }: HomeProps) {
                             }}
                             onClick={(e) => e.stopPropagation()}
                           >
-                            <button
+                            <PressableButton
                               className="flex items-center gap-1.5 w-full px-3 py-2 hover:opacity-80"
                               style={{ color: "#F87171" }}
                               onClick={() => { setDeleteStudioId(s.id); setMenuStudioId(null); }}
                             >
                               <Trash2 size={13} /> Eliminar
-                            </button>
+                            </PressableButton>
                           </div>
                         )}
                       </div>

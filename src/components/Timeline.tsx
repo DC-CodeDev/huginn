@@ -4,6 +4,7 @@ import { PORT_COLORS } from "../types";
 import type { Node, TimelineStage } from "../types";
 import type { Theme } from "../lib/theme";
 import { uid } from "../lib/id";
+import { PressableButton } from "./PressableButton";
 
 interface TimelineProps {
   node: Extract<Node, { type: "timeline" }>;
@@ -91,10 +92,10 @@ export function Timeline({ node, T, update }: TimelineProps) {
                         style={{ background: T.field, border: `1px solid ${T.fieldBorder}`, color: T.sub }}
                       >
                         {t}
-                        <button className="opacity-0 group-hover/tag:opacity-100" style={{ color: T.sub }}
+                        <PressableButton className="opacity-0 group-hover/tag:opacity-100" style={{ color: T.sub }}
                           onClick={() => setStage(s.id, (x) => ({ ...x, tags: x.tags.filter((_, j) => j !== ti) }))}>
                           <X size={9} />
-                        </button>
+                        </PressableButton>
                       </span>
                     ))}
                     <input
@@ -111,25 +112,25 @@ export function Timeline({ node, T, update }: TimelineProps) {
                       style={{ color: T.sub }}
                     />
                   </div>
-                  <button
+                  <PressableButton
                     className="mt-1 text-[10px] opacity-0 group-hover:opacity-100 transition-opacity hover:opacity-100"
                     style={{ color: "#F87171" }}
                     onClick={() => update((n) => n.type === "timeline" ? { ...n, stages: n.stages.filter((x) => x.id !== s.id) } : n)}
                   >
                     quitar etapa
-                  </button>
+                  </PressableButton>
                 </div>
               </div>
             );
           })}
         </div>
-        <button
+        <PressableButton
           className="mt-3 w-full text-[11px] rounded-lg py-1.5 hover:opacity-75"
           style={{ border: `1px dashed ${T.fieldBorder}`, color: T.sub }}
           onClick={() => update((n) => n.type === "timeline" ? { ...n, stages: [...n.stages, { id: uid(), title: `Etapa ${n.stages.length + 1}`, tags: [] }] } : n)}
         >
           + Añadir etapa
-        </button>
+        </PressableButton>
       </div>
     );
   }
@@ -168,10 +169,10 @@ export function Timeline({ node, T, update }: TimelineProps) {
                         style={{ background: T.card, border: `1px solid ${T.fieldBorder}`, color: T.sub }}
                       >
                         {t}
-                        <button className="opacity-0 group-hover/tag:opacity-100" style={{ color: T.sub }}
+                        <PressableButton className="opacity-0 group-hover/tag:opacity-100" style={{ color: T.sub }}
                           onClick={() => setStage(s.id, (x) => ({ ...x, tags: x.tags.filter((_, j) => j !== ti) }))}>
                           <X size={8} />
-                        </button>
+                        </PressableButton>
                       </span>
                     ))}
                     <input
@@ -188,13 +189,13 @@ export function Timeline({ node, T, update }: TimelineProps) {
                       style={{ color: T.sub }}
                     />
                   </div>
-                  <button
+                  <PressableButton
                     className="mt-1 text-[9px] opacity-0 group-hover:opacity-100 transition-opacity hover:opacity-100"
                     style={{ color: "#F87171" }}
                     onClick={() => update((n) => n.type === "timeline" ? { ...n, stages: n.stages.filter((x) => x.id !== s.id) } : n)}
                   >
                     quitar
-                  </button>
+                  </PressableButton>
                 </div>
               </div>
             );
@@ -203,13 +204,13 @@ export function Timeline({ node, T, update }: TimelineProps) {
           <div className="flex flex-col items-center shrink-0 self-start" style={{ width: 140 }}>
             <span className="w-3 h-3 rounded-full mb-2 z-10"
               style={{ background: T.card, border: `2px solid ${T.fieldBorder}` }} />
-            <button
+            <PressableButton
               className="w-full text-[10px] rounded-xl py-2 hover:opacity-75"
               style={{ border: `1px dashed ${T.fieldBorder}`, color: T.sub }}
               onClick={() => update((n) => n.type === "timeline" ? { ...n, stages: [...n.stages, { id: uid(), title: `Etapa ${n.stages.length + 1}`, tags: [] }] } : n)}
             >
               + Añadir etapa
-            </button>
+            </PressableButton>
           </div>
         </div>
       </div>
