@@ -72,4 +72,29 @@ describe("AnimatedModal", () => {
     fireEvent.keyDown(document, { key: "Escape" });
     expect(onClose).not.toHaveBeenCalled();
   });
+
+  it("anima la entrada: al pasar de oculto a visible, --spring-progress arranca por debajo del valor final", () => {
+    const { container, rerender } = render(
+      <AnimatedModal show={false} onClose={() => {}}>
+        <div data-testid="panel">contenido</div>
+      </AnimatedModal>,
+    );
+    // Oculto: Presence aún no monta el panel en el DOM.
+    expect(container.querySelector(".bylgja-modal-panel")).toBeNull();
+
+    rerender(
+      <AnimatedModal show onClose={() => {}}>
+        <div data-testid="panel">contenido</div>
+      </AnimatedModal>,
+    );
+
+    const panelEl = container.querySelector(".bylgja-modal-panel") as HTMLElement | null;
+    expect(panelEl).not.toBeNull();
+    // Regresión: con el montaje tardío (gate `mounted`) el panel nacía ya con
+    // show=true y Presence saltaba directo a 1 sin animar. Con la corrección, la
+    // transición real false→true arranca el spring desde 0, así que el progreso
+    // inicial debe ser menor que el valor asentado (1).
+    const progress = Number(panelEl!.style.getPropertyValue("--spring-progress"));
+    expect(progress).toBeLessThan(1);
+  });
 });

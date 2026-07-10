@@ -46,10 +46,18 @@ interface AnimatedModalProps {
  * - `render()` de los hooks sólo acepta `children` (no `style` ni handlers), así
  *   que el click-afuera y el centrado del panel viven en una capa propia
  *   (`overlay`) que es hermana del backdrop y queda por encima de él.
- * - La capa interactiva se monta/desmonta con `mounted`, guiado por `onSettled`
- *   del panel, y NO con `binding.state`: `state` pasa a "hidden" apenas
- *   `show=false`, pero Presence sigue montado hasta que el spring de salida
- *   asienta. Gatear con `state` cortaría la animación de salida.
+ * - Esa capa se renderiza SIEMPRE (no se gatea su montaje). Así `panel.render`
+ *   se llama desde el primer render, y Presence nace en estado `show=false`
+ *   (renderizando `null`) para poder animar la transición real a `show=true`.
+ *   Si en cambio retrasáramos el primer montaje del panel hasta que `show` ya
+ *   es `true`, Presence nacería directamente en su valor final y la ENTRADA no
+ *   animaría (aparecería de golpe); Presence ya sabe mantenerse montado durante
+ *   la salida y desmontarse solo cuando el spring de salida asienta.
+ * - Separamos dos preocupaciones que antes estaban mezcladas en un `mounted`:
+ *   "el panel debe existir en el DOM" (lo decide Presence) vs. "la capa debe
+ *   capturar clicks" (sólo mientras está o estuvo visible). Lo segundo se
+ *   resuelve con `pointer-events`, apagándolo vía `onSettled` cuando la salida
+ *   asienta, sin afectar el ciclo de montaje del panel.
  *
  * NOTA DE TIMING (a tener en cuenta en el futuro, no se resuelve acá):
  * La duración de la animación de salida del panel (SPRING_GENTLE que usa
@@ -77,18 +85,21 @@ export function AnimatedModal({
   const panel = useModalPanel({
     show,
     className,
-    // Cuando la salida asienta y ya no estamos visibles, desmontamos la capa
-    // interactiva para que no siga capturando clicks con la pantalla vacía.
+    // Cuando la salida asienta y ya no estamos visibles, la capa deja de
+    // capturar clicks (pointer-events) para no bloquear con la pantalla vacía.
+    // No desmonta el panel: de eso se encarga Presence por su cuenta.
     onSettled: () => {
-      if (!show) setMounted(false);
+      if (!show) setCapturing(false);
     },
   });
 
-  // Espeja el ciclo de vida de Presence para la capa interactiva propia.
-  const [mounted, setMounted] = useState(show);
+  // La capa captura clicks mientras el modal está o estuvo visible (incluida la
+  // animación de salida); se apaga sólo cuando esa salida asienta.
+  const [capturing, setCapturing] = useState(show);
   useEffect(() => {
-    if (show) setMounted(true);
+    if (show) setCapturing(true);
   }, [show]);
+  const capturesClicks = show || capturing;
 
   // Escape cierra mientras está visible (patrón que hoy tiene TagsModal).
   useEffect(() => {
@@ -103,17 +114,15 @@ export function AnimatedModal({
   return (
     <>
       {backdrop.render()}
-      {mounted && (
-        <div
-          data-export-exclude="true"
-          className={`fixed inset-0 ${zIndexClassName} flex items-center justify-center${overlayClassName ? ` ${overlayClassName}` : ""}`}
-          onMouseDown={(e) => {
-            if (e.target === e.currentTarget) onClose();
-          }}
-        >
-          {panel.render(children)}
-        </div>
-      )}
+      <div
+        data-export-exclude="true"
+        className={`fixed inset-0 ${zIndexClassName} flex items-center justify-center${capturesClicks ? "" : " pointer-events-none"}${overlayClassName ? ` ${overlayClassName}` : ""}`}
+        onMouseDown={(e) => {
+          if (e.target === e.currentTarget) onClose();
+        }}
+      >
+        {panel.render(children)}
+      </div>
     </>
   );
 }
