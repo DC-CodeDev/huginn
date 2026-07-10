@@ -27,7 +27,7 @@ test("Ctrl+C + Ctrl+V crea nodo con mismo contenido, sin edges nuevas, en posici
   await page.locator(`[data-testid="${originalId}"] span.rounded-full`).first().click();
 
   // Esperar a que la barra de selección aparezca: confirma que `selection` está activo en React.
-  await expect(page.getByRole("button", { name: "Eliminar" })).toBeVisible({ timeout: 3_000 });
+  await expect(page.getByRole("button", { name: "Eliminar", exact: true })).toBeVisible({ timeout: 3_000 });
 
   // Copiar.
   await page.keyboard.press("Control+c");
@@ -128,7 +128,7 @@ test("Ctrl+C con multiples nodos seleccionados preserva posiciones relativas y n
   await expect(edgesLocator).toHaveCount(edgesBefore);
 
   // Los dos nodos pegados quedan seleccionados (barra visible)
-  await expect(page.getByRole("button", { name: "Eliminar" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Eliminar", exact: true })).toBeVisible();
 
   // Leer posiciones de las copias (newIds[0] = copia de id1, newIds[1] = copia de id2,
   // porque clipboard mantiene el orden del array nodes que tiene id1 antes que id2)

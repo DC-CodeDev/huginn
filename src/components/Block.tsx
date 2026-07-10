@@ -21,7 +21,7 @@ export function Block({ block, T, update, remove }: BlockProps) {
       <PressableButton
         className="absolute -top-2 -right-2 z-10 rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
         style={{ background: T.card, border: `1px solid ${T.fieldBorder}`, color: T.sub }}
-        onClick={remove} title="Quitar bloque"
+        onClick={remove} tooltip="Quitar bloque" aria-label="Quitar bloque"
       >
         <X size={11} />
       </PressableButton>

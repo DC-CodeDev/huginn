@@ -18,6 +18,7 @@ import "bylgja/variants/pressable.css";
 import "bylgja/variants/fadeScale.css";
 import "bylgja/variants/modalBackdrop.css";
 import "bylgja/variants/modalPanel.css";
+import "bylgja/variants/tooltip.css";
 import "./styles.css";
 
 type View =

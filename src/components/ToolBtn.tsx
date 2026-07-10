@@ -1,4 +1,4 @@
-import { usePressable } from "bylgja";
+import { Tooltip, usePressable } from "bylgja";
 import type { ReactNode } from "react";
 import type { Theme } from "../lib/theme";
 
@@ -17,9 +17,10 @@ export function ToolBtn({ T, label, onClick, children, testId, disabled = false 
   });
 
   return (
+    <Tooltip content={label} openDelay={350} closeDelay={80} placement="bottom" viewportPadding={12}>
     <button
       ref={pressable.ref}
-      title={label}
+      aria-label={label}
       data-testid={testId}
       className={pressable.className}
       style={{ color: T.text, opacity: disabled ? 0.45 : 1 }}
@@ -33,5 +34,6 @@ export function ToolBtn({ T, label, onClick, children, testId, disabled = false 
     >
       {children}
     </button>
+    </Tooltip>
   );
 }

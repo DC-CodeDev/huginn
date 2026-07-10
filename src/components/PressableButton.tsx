@@ -1,11 +1,14 @@
-import { usePressable } from "bylgja";
+import { Tooltip, usePressable } from "bylgja";
 import type {
   ButtonHTMLAttributes,
   MouseEventHandler,
   PointerEventHandler,
+  ReactNode,
 } from "react";
 
-type PressableButtonProps = ButtonHTMLAttributes<HTMLButtonElement>;
+type PressableButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
+  tooltip?: ReactNode;
+};
 
 export function PressableButton({
   className,
@@ -14,6 +17,7 @@ export function PressableButton({
   onPointerCancel,
   onPointerDown,
   onPointerUp,
+  tooltip,
   ...props
 }: PressableButtonProps) {
   const pressable = usePressable<HTMLButtonElement>({ className });
@@ -43,7 +47,7 @@ export function PressableButton({
     onPointerUp?.(event);
   };
 
-  return (
+  const button = (
     <button
       {...props}
       ref={pressable.ref}
@@ -55,4 +59,10 @@ export function PressableButton({
       onPointerUp={handlePointerUp}
     />
   );
+
+  return tooltip ? (
+    <Tooltip content={tooltip} openDelay={350} closeDelay={80} placement="top" viewportPadding={12}>
+      {button}
+    </Tooltip>
+  ) : button;
 }

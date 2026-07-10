@@ -63,7 +63,8 @@ export function FilterPanel({
           className="p-1 rounded-lg hover:opacity-70"
           style={{ color: T.sub }}
           onClick={onClose}
-          title="Cerrar filtro"
+          tooltip="Cerrar filtro"
+          aria-label="Cerrar filtro"
         >
           <FilterX size={14} />
         </PressableButton>

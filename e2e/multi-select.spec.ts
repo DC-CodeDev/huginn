@@ -32,7 +32,7 @@ test("shift+click agrega y quita nodos de la seleccion", async ({ page }) => {
   await expect(page.locator(`[data-testid="${id2}"]`)).toHaveAttribute("data-selected", "true");
 
   // La barra de selección sigue visible
-  await expect(page.getByRole("button", { name: "Eliminar" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Eliminar", exact: true })).toBeVisible();
 
   // Shift+click en nodo 2 de nuevo → lo quita, nodo 1 sigue seleccionado
   await clickNode(page, id2, { shift: true });
@@ -87,7 +87,7 @@ test("click en canvas vacio deselecciona todo", async ({ page }) => {
   // Click en el fondo del canvas (coordenada arbitraria fuera de cualquier nodo)
   await page.mouse.click(5, 5);
   await expect(page.locator(`[data-testid="${id1}"]`)).toHaveAttribute("data-selected", "false");
-  await expect(page.getByRole("button", { name: "Eliminar" })).not.toBeVisible();
+  await expect(page.getByRole("button", { name: "Eliminar", exact: true })).not.toBeVisible();
 });
 
 test("arrastrar un nodo de una seleccion multiple mueve todo el grupo manteniendo distancias relativas", async ({ page }) => {

@@ -122,7 +122,7 @@ export function TagsModal({ T, theme, boardId, nodeTitle, tags, localBoardTags, 
           <span className="text-sm font-medium flex-1 min-w-0 truncate" style={{ color: T.text }}>
             Tags · {nodeTitle || "Nodo"}
           </span>
-          <PressableButton className="p-1 rounded-lg hover:opacity-70" style={{ color: T.sub }} onClick={onClose} title="Cerrar">
+          <PressableButton className="p-1 rounded-lg hover:opacity-70" style={{ color: T.sub }} onClick={onClose} tooltip="Cerrar" aria-label="Cerrar">
             <X size={15} />
           </PressableButton>
         </div>
@@ -140,7 +140,8 @@ export function TagsModal({ T, theme, boardId, nodeTitle, tags, localBoardTags, 
                     className="rounded-full p-0.5 hover:opacity-70"
                     style={{ color: T.sub }}
                     onClick={() => removeTag(t)}
-                    title={`Quitar "${t}"`}
+                    tooltip={`Quitar "${t}"`}
+                    aria-label={`Quitar "${t}"`}
                     data-testid={`tag-remove-${t}`}
                   >
                     <X size={11} />

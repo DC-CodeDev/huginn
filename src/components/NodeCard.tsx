@@ -9,6 +9,7 @@ import { uid } from "../lib/id";
 import { MenuItem } from "./MenuItem";
 import { Block } from "./Block";
 import { Timeline } from "./Timeline";
+import { Tooltip } from "bylgja";
 
 interface NodeCardProps {
   node: Node;
@@ -75,12 +76,16 @@ export function NodeCard({ node, T, theme, selected, opacity, onSelect, onStartD
           className="bg-transparent outline-none text-sm font-medium flex-1 min-w-0"
           style={{ color: T.text }}
         />
-        <button data-testid={`menu-${node.id}`} className="p-1 rounded-lg hover:opacity-70" style={{ color: T.sub }} onClick={(e) => { e.stopPropagation(); onOpenMenu(); }}>
-          <Plus size={15} />
-        </button>
-        <button className="p-1 rounded-lg hover:opacity-70" style={{ color: T.sub }} onClick={(e) => { e.stopPropagation(); onDelete(); }}>
-          <Trash2 size={14} />
-        </button>
+        <Tooltip content="Agregar contenido" openDelay={350} closeDelay={80} placement="top" viewportPadding={12}>
+          <button aria-label="Agregar contenido" data-testid={`menu-${node.id}`} className="p-1 rounded-lg hover:opacity-70" style={{ color: T.sub }} onClick={(e) => { e.stopPropagation(); onOpenMenu(); }}>
+            <Plus size={15} />
+          </button>
+        </Tooltip>
+        <Tooltip content="Eliminar nodo" openDelay={350} closeDelay={80} placement="top" viewportPadding={12}>
+          <button aria-label="Eliminar nodo" className="p-1 rounded-lg hover:opacity-70" style={{ color: T.sub }} onClick={(e) => { e.stopPropagation(); onDelete(); }}>
+            <Trash2 size={14} />
+          </button>
+        </Tooltip>
       </div>
 
       {/* Menú añadir */}
@@ -150,11 +155,12 @@ export function NodeCard({ node, T, theme, selected, opacity, onSelect, onStartD
           ? inputPortColors[node.id][p.id]
           : p.color;
         return (
-          <div
-            key={p.id}
+          <Tooltip key={p.id} content="Conectar puerto · clic derecho para cambiar color" openDelay={350} closeDelay={80} placement={p.side === "left" ? "left" : "right"} viewportPadding={12}>
+          <button
+            type="button"
             data-testid={`port-${node.id}-${p.id}`}
-            title="Clic: conectar · Botón derecho: elegir color"
-            className="absolute rounded-full cursor-crosshair z-10"
+            aria-label="Conectar puerto · clic derecho para cambiar color"
+            className="absolute rounded-full cursor-crosshair z-10 p-0"
             style={{
               width: 12, height: 12,
               top: PORT_Y0 + i * PORT_DY - 6,
@@ -168,6 +174,7 @@ export function NodeCard({ node, T, theme, selected, opacity, onSelect, onStartD
             onDoubleClick={(e) => { e.stopPropagation(); onPortCycle(p.id); }}
             onContextMenu={(e) => onPortContext(p.id, e)}
           />
+          </Tooltip>
         );
       })}
 

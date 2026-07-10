@@ -8,6 +8,11 @@ declare const process: { env: Record<string, string | undefined> };
 const devPort = Number(process.env.VITE_DEV_PORT ?? 5174);
 
 export default defineConfig({
+  resolve: {
+    // La dependencia local de Bylgja tiene sus propios node_modules de desarrollo;
+    // Vite debe compartir el React de Huginn para conservar un único dispatcher de hooks.
+    dedupe: ["react", "react-dom"],
+  },
   plugins: [
     react(),
     tailwindcss(),

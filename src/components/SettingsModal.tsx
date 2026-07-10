@@ -47,7 +47,7 @@ export function SettingsModal({
           <span className="text-sm font-medium flex-1" style={{ color: T.text }}>
             Ajustes
           </span>
-          <PressableButton className="p-1 rounded-lg hover:opacity-70" style={{ color: T.sub }} onClick={onClose} title="Cerrar">
+          <PressableButton className="p-1 rounded-lg hover:opacity-70" style={{ color: T.sub }} onClick={onClose} tooltip="Cerrar" aria-label="Cerrar">
             <X size={15} />
           </PressableButton>
         </div>

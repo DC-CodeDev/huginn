@@ -15,7 +15,7 @@
   "dependencies": {
     "@tailwindcss/vite": "latest",
     "@vitejs/plugin-react": "latest",
-    "bylgja": "git+https://github.com/DC-CodeDev/bylgja.git#main",
+    "bylgja": "file:../bylgja",
     "html-to-image": "^1.11.11",
     "lucide-react": "latest",
     "react": "latest",
