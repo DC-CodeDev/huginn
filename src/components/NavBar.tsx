@@ -42,9 +42,6 @@ export function NavBar({ user, theme, onHomeClick, onToggleTheme, onSettingsClic
             >
               Huginn
             </span>
-            <span style={{ fontSize: 11, color: "var(--sub)" }}>
-              yggdrasil suite
-            </span>
           </button>
 
           {/* Actions + User */}

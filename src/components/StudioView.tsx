@@ -33,7 +33,7 @@ type MenuTarget =
   | { kind: "board"; id: string }
   | { kind: "folder"; id: string };
 
-export function StudioView({ studioId, onFolderClick, onBoardClick }: StudioViewProps) {
+export function StudioView({ studioId, onBack, onFolderClick, onBoardClick }: StudioViewProps) {
   const [studio, setStudio] = useState<Studio | null>(null);
   const [folders, setFolders] = useState<Folder[] | null>(null);
   const [boards, setBoards] = useState<BoardSummary[] | null>(null);
@@ -58,12 +58,19 @@ export function StudioView({ studioId, onFolderClick, onBoardClick }: StudioView
 
   useEffect(() => {
     if (!menuTarget) return;
-    const handler = (e: MouseEvent) => {
+    const mouseHandler = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
       if (!target.closest('[data-menu-root]')) setMenuTarget(null);
     };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
+    const keyHandler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMenuTarget(null);
+    };
+    document.addEventListener("mousedown", mouseHandler);
+    document.addEventListener("keydown", keyHandler);
+    return () => {
+      document.removeEventListener("mousedown", mouseHandler);
+      document.removeEventListener("keydown", keyHandler);
+    };
   }, [menuTarget]);
 
   const doRename = async (id: string) => {
@@ -156,15 +163,39 @@ export function StudioView({ studioId, onFolderClick, onBoardClick }: StudioView
       >
         {/* Studio Header */}
         <div className="mb-10">
-          <div
-            style={{
-              fontFamily: "'JetBrains Mono', ui-monospace, monospace",
-              fontSize: 10, fontWeight: 500,
-              letterSpacing: "0.16em", textTransform: "uppercase",
-              color: "var(--accent)", marginBottom: 10,
-            }}
-          >
-            Estudio
+          <div className="flex items-center gap-2" style={{ marginBottom: 10 }}>
+            <button
+              onClick={onBack}
+              className="hover:opacity-70 transition-opacity"
+              style={{
+                fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+                fontSize: 13, fontWeight: 500,
+                letterSpacing: "0.12em",
+                color: "var(--accent)",
+                cursor: "pointer",
+              }}
+            >
+              Studios
+            </button>
+            <span
+              style={{
+                fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+                fontSize: 13,
+                color: "var(--sub)",
+                opacity: 0.5,
+              }}
+            >
+              →
+            </span>
+            <span
+              style={{
+                fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+                fontSize: 13, fontWeight: 600,
+                color: "var(--text)",
+              }}
+            >
+              {studio.name}
+            </span>
           </div>
 
           <div className="flex items-start justify-between gap-4">
