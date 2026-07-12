@@ -74,7 +74,7 @@ export function Home({ onStudioClick }: HomeProps) {
             color: "var(--text)",
           }}
         >
-          <div style={{ maxWidth: 1000 }}>
+          <div style={{ maxWidth: 1000, marginInline: "auto" }}>
             <div
               style={{
                 fontFamily: "'JetBrains Mono', ui-monospace, monospace",
@@ -149,7 +149,7 @@ export function Home({ onStudioClick }: HomeProps) {
             color: "var(--text)",
           }}
         >
-          <div style={{ maxWidth: 1000 }}>
+          <div style={{ maxWidth: 1000, marginInline: "auto" }}>
             <div
               style={{
                 fontFamily: "'JetBrains Mono', ui-monospace, monospace",

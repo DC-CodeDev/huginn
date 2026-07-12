@@ -149,7 +149,7 @@ export function StudioView({ studioId, onBack, onFolderClick, onBoardClick }: St
 
   return (
     <div className="w-full app-dvh" style={{ background: "var(--bg)" }}>
-      <div className="max-w-5xl mx-auto px-6 py-8 app-safe-page">
+      <div className="max-w-5xl mx-auto px-6 py-8 app-safe-page mt-14">
         {/* Header */}
         <div className="flex items-center gap-4 mb-8">
           <button
