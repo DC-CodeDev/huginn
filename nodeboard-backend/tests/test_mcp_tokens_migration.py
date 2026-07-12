@@ -200,7 +200,18 @@ class TestMigrationScript:
         db_path = tmp_path / "nodeboard.db"
         engine = create_engine(f"sqlite:///{db_path}")
         tables = set(inspect(engine).get_table_names())
-        expected = {"users", "sessions", "studios", "folders", "boards", "nodes", "edges", "mcp_tokens"}
+        expected = {
+            "users",
+            "sessions",
+            "studios",
+            "folders",
+            "boards",
+            "nodes",
+            "edges",
+            "mcp_tokens",
+            "mcp_idempotency_records",
+            "mcp_audit_log",
+        }
         for t in expected:
             assert t in tables, f"Falta {t}"
         extra = tables - expected - {"alembic_version"}

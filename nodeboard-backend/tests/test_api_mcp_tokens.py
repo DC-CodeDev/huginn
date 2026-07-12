@@ -6,9 +6,10 @@ aislamiento entre usuarios y no exposición de secretos.
 import hashlib
 import uuid
 
+import httpx
 import pytest
+import pytest_asyncio
 from fastapi import HTTPException
-from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -79,43 +80,56 @@ def _valid_payload(**kwargs) -> MCPTokenCreate:
     return MCPTokenCreate(**data)
 
 
-# ======================================================================
-# Autenticación (TestClient)
-# ======================================================================
+@pytest_asyncio.fixture()
+async def client():
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        yield client
 
 
-client = TestClient(app)
+# ======================================================================
+# Autenticación (ASGI transport)
+# ======================================================================
 
 
 class TestAuth:
-    def test_create_requires_auth(self):
-        resp = client.post("/api/integrations/mcp/tokens", json={"name": "x", "scopes": ["studios:read"]})
+    @pytest.mark.asyncio
+    async def test_create_requires_auth(self, client):
+        resp = await client.post(
+            "/api/integrations/mcp/tokens",
+            json={"name": "x", "scopes": ["studios:read"]},
+        )
         assert resp.status_code == 401
 
-    def test_list_requires_auth(self):
-        resp = client.get("/api/integrations/mcp/tokens")
+    @pytest.mark.asyncio
+    async def test_list_requires_auth(self, client):
+        resp = await client.get("/api/integrations/mcp/tokens")
         assert resp.status_code == 401
 
-    def test_revoke_requires_auth(self):
-        resp = client.post("/api/integrations/mcp/tokens/fake/revoke")
+    @pytest.mark.asyncio
+    async def test_revoke_requires_auth(self, client):
+        resp = await client.post("/api/integrations/mcp/tokens/fake/revoke")
         assert resp.status_code == 401
 
-    def test_delete_requires_auth(self):
-        resp = client.delete("/api/integrations/mcp/tokens/fake")
+    @pytest.mark.asyncio
+    async def test_delete_requires_auth(self, client):
+        resp = await client.delete("/api/integrations/mcp/tokens/fake")
         assert resp.status_code == 401
 
-    def test_bearer_token_not_accepted(self):
+    @pytest.mark.asyncio
+    async def test_bearer_token_not_accepted(self, client):
         """Todavía no existe validación Bearer."""
-        resp = client.post(
+        resp = await client.post(
             "/api/integrations/mcp/tokens",
             json={"name": "x", "scopes": ["studios:read"]},
             headers={"Authorization": "Bearer huginn_mcp_fake"},
         )
         assert resp.status_code == 401
 
-    def test_mcp_route_not_caught_by_spa(self):
+    @pytest.mark.asyncio
+    async def test_mcp_route_not_caught_by_spa(self, client):
         """La ruta debe existir como API, no como SPA."""
-        resp = client.get("/api/integrations/mcp/tokens")
+        resp = await client.get("/api/integrations/mcp/tokens")
         assert resp.status_code == 401  # no autenticado, no 404
         assert resp.text != ""
 
@@ -168,6 +182,12 @@ class TestCreate:
             _valid_payload(scopes=["boards:read", "nodes:read"]), db=db, current_user=user_a
         )
         assert result.scopes == ["boards:read", "nodes:read"]
+
+    def test_boards_create_scope_can_be_assigned(self, db, user_a):
+        result = _route_create(
+            _valid_payload(scopes=["boards:create"]), db=db, current_user=user_a
+        )
+        assert result.scopes == ["boards:create"]
 
     def test_duplicate_scopes_normalized(self, db, user_a):
         result = _route_create(

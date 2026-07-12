@@ -12,7 +12,18 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    UniqueConstraint,
+    false as sa_false,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -54,6 +65,12 @@ class User(Base):
     )
     mcp_tokens: Mapped[list["MCPToken"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
+    )
+    mcp_idempotency_records: Mapped[list["MCPIdempotencyRecord"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+    mcp_audit_logs: Mapped[list["MCPAuditLog"]] = relationship(
+        back_populates="user"
     )
 
 
@@ -194,3 +211,90 @@ class MCPToken(Base):
     revoked_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
     user: Mapped["User"] = relationship(back_populates="mcp_tokens")
+    idempotency_records: Mapped[list["MCPIdempotencyRecord"]] = relationship(
+        back_populates="token", cascade="all, delete-orphan"
+    )
+    audit_logs: Mapped[list["MCPAuditLog"]] = relationship(
+        back_populates="token"
+    )
+
+
+class MCPIdempotencyRecord(Base):
+    __tablename__ = "mcp_idempotency_records"
+    __table_args__ = (
+        UniqueConstraint(
+            "token_id",
+            "tool_name",
+            "idempotency_key",
+            name="uq_mcp_idempotency_token_tool_key",
+        ),
+        Index("ix_mcp_idempotency_records_status", "status"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    token_id: Mapped[str] = mapped_column(
+        ForeignKey("mcp_tokens.id", ondelete="CASCADE"), index=True
+    )
+    tool_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    request_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    response_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    resource_version_before: Mapped[Optional[int]] = mapped_column(
+        Integer, nullable=True
+    )
+    resource_version_after: Mapped[Optional[int]] = mapped_column(
+        Integer, nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=_now, onupdate=_now
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+
+    user: Mapped["User"] = relationship(back_populates="mcp_idempotency_records")
+    token: Mapped["MCPToken"] = relationship(back_populates="idempotency_records")
+
+
+class MCPAuditLog(Base):
+    __tablename__ = "mcp_audit_log"
+    __table_args__ = (
+        Index("ix_mcp_audit_log_tool_name", "tool_name"),
+        Index("ix_mcp_audit_log_request_id", "request_id"),
+        Index("ix_mcp_audit_log_resource_id", "resource_id"),
+        Index("ix_mcp_audit_log_status", "status"),
+        Index("ix_mcp_audit_log_created_at", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    user_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+        index=True,
+        nullable=True,
+    )
+    token_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("mcp_tokens.id", ondelete="SET NULL"),
+        index=True,
+        nullable=True,
+    )
+    client_name: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    tool_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    request_id: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    resource_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    resource_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    error_code: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    affected_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    version_before: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    version_after: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    duration_ms: Mapped[int] = mapped_column(Integer, nullable=False)
+    is_replay: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=sa_false())
+    idempotency_key_prefix: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    metadata_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now, nullable=False)
+
+    user: Mapped[Optional["User"]] = relationship(back_populates="mcp_audit_logs")
+    token: Mapped[Optional["MCPToken"]] = relationship(back_populates="audit_logs")

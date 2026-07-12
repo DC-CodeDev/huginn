@@ -100,6 +100,27 @@ def get_owned_node(
     return node
 
 
+def get_owned_node_with_board(
+    db: Session, user_id: str, node_id: str
+) -> tuple[models.Node, models.Board]:
+    """Retorna un Node y su Board si pertenecen al usuario."""
+    row = (
+        db.execute(
+            select(models.Node, models.Board)
+            .join(models.Board, models.Node.board_id == models.Board.id)
+            .join(models.Studio, models.Board.studio_id == models.Studio.id)
+            .where(
+                models.Node.id == node_id,
+                models.Studio.user_id == user_id,
+            )
+        )
+        .first()
+    )
+    if not row:
+        raise ResourceNotFound("Node", node_id, "Nodo no encontrado")
+    return row[0], row[1]
+
+
 def get_owned_edge(
     db: Session, user_id: str, edge_id: str
 ) -> models.Edge:
@@ -120,3 +141,24 @@ def get_owned_edge(
     if not edge:
         raise ResourceNotFound("Edge", edge_id, "Arista no encontrada")
     return edge
+
+
+def get_owned_edge_with_board(
+    db: Session, user_id: str, edge_id: str
+) -> tuple[models.Edge, models.Board]:
+    """Retorna un Edge y su Board si pertenecen al usuario."""
+    row = (
+        db.execute(
+            select(models.Edge, models.Board)
+            .join(models.Board, models.Edge.board_id == models.Board.id)
+            .join(models.Studio, models.Board.studio_id == models.Studio.id)
+            .where(
+                models.Edge.id == edge_id,
+                models.Studio.user_id == user_id,
+            )
+        )
+        .first()
+    )
+    if not row:
+        raise ResourceNotFound("Edge", edge_id, "Arista no encontrada")
+    return row[0], row[1]

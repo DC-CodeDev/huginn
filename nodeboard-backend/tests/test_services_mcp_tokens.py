@@ -210,6 +210,20 @@ class TestCreateToken:
         )
         assert result.scopes == ["boards:read", "studios:read"]
 
+    def test_boards_create_scope_is_valid(self, db):
+        user = _user(db)
+        result = create_mcp_token(
+            db, user.id, _valid_payload(scopes=["boards:create"])
+        )
+        assert result.scopes == ["boards:create"]
+
+    def test_nodes_update_scope_is_valid(self, db):
+        user = _user(db)
+        result = create_mcp_token(
+            db, user.id, _valid_payload(scopes=["nodes:update"])
+        )
+        assert result.scopes == ["nodes:update"]
+
     def test_more_than_20_scopes_fails(self, db):
         user = _user(db)
         # Sólo hay 14 scopes definidos actualmente, por lo que el límite

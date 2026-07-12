@@ -214,9 +214,10 @@ def rename_board(
     user_id: str,
     board_id: str,
     payload: schemas.BoardRename,
+    board: models.Board | None = None,
 ) -> schemas.BoardState:
     """Renombra un board verificando ownership y versión."""
-    board = get_owned_board(db, user_id, board_id)
+    board = board or get_owned_board(db, user_id, board_id)
     increment_board_version(db, board_id, payload.expected_version)
     try:
         board.name = payload.name

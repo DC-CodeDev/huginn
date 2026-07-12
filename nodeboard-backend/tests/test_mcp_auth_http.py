@@ -7,9 +7,9 @@ import hashlib
 import uuid
 from datetime import datetime, timedelta, timezone
 
+import httpx
 import pytest
 from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -110,10 +110,10 @@ class TestAuthCheckHTTP:
     def _app(self, db):
         """Crea una app FastAPI temporal con get_db y auth-check."""
 
-        def get_db():
+        async def get_db():
             yield db
 
-        def _mcp_context(request: Request, _db: Session = Depends(get_db)):
+        async def _mcp_context(request: Request, _db: Session = Depends(get_db)):
             authorization = request.headers.get("Authorization")
             try:
                 raw_token = extract_bearer_token(authorization)
@@ -126,7 +126,7 @@ class TestAuthCheckHTTP:
                 )
             return ctx
 
-        def _auth_check(ctx=Depends(_mcp_context)):
+        async def _auth_check(ctx=Depends(_mcp_context)):
             now = datetime.now(timezone.utc).replace(tzinfo=None)
             return MCPAuthCheck(
                 authenticated=True,
@@ -152,101 +152,123 @@ class TestAuthCheckHTTP:
         )
         return app
 
-    def test_valid_bearer_returns_200(self, fs_db, fs_user):
+    async def _get(self, app: FastAPI, *, client_cookies: dict[str, str] | None = None, **kwargs):
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(
+            transport=transport,
+            base_url="http://testserver",
+            cookies=client_cookies,
+        ) as client:
+            return await client.get("/api/integrations/mcp/auth-check", **kwargs)
+
+    @pytest.mark.asyncio
+    async def test_valid_bearer_returns_200(self, fs_db, fs_user):
         raw, record = _make_token(fs_db, fs_user)
-        resp = TestClient(self._app(fs_db)).get(
-            "/api/integrations/mcp/auth-check",
+        resp = await self._get(
+            self._app(fs_db),
             headers={"Authorization": f"Bearer {raw}"},
         )
         assert resp.status_code == 200
 
-    def test_returns_authenticated_true(self, fs_db, fs_user):
+    @pytest.mark.asyncio
+    async def test_returns_authenticated_true(self, fs_db, fs_user):
         raw, record = _make_token(fs_db, fs_user)
-        resp = TestClient(self._app(fs_db)).get(
-            "/api/integrations/mcp/auth-check",
+        resp = await self._get(
+            self._app(fs_db),
             headers={"Authorization": f"Bearer {raw}"},
         )
         assert resp.json()["authenticated"] is True
 
-    def test_does_not_return_full_token(self, fs_db, fs_user):
+    @pytest.mark.asyncio
+    async def test_does_not_return_full_token(self, fs_db, fs_user):
         raw, record = _make_token(fs_db, fs_user)
-        resp = TestClient(self._app(fs_db)).get(
-            "/api/integrations/mcp/auth-check",
+        resp = await self._get(
+            self._app(fs_db),
             headers={"Authorization": f"Bearer {raw}"},
         )
         data = resp.json()
         assert "token" not in data
         assert raw not in str(data)
 
-    def test_does_not_return_token_hash(self, fs_db, fs_user):
+    @pytest.mark.asyncio
+    async def test_does_not_return_token_hash(self, fs_db, fs_user):
         raw, record = _make_token(fs_db, fs_user)
-        resp = TestClient(self._app(fs_db)).get(
-            "/api/integrations/mcp/auth-check",
+        resp = await self._get(
+            self._app(fs_db),
             headers={"Authorization": f"Bearer {raw}"},
         )
         assert "token_hash" not in resp.json()
 
-    def test_does_not_return_email(self, fs_db, fs_user):
+    @pytest.mark.asyncio
+    async def test_does_not_return_email(self, fs_db, fs_user):
         raw, record = _make_token(fs_db, fs_user)
-        resp = TestClient(self._app(fs_db)).get(
-            "/api/integrations/mcp/auth-check",
+        resp = await self._get(
+            self._app(fs_db),
             headers={"Authorization": f"Bearer {raw}"},
         )
         data = resp.json()
         assert "email" not in data
         assert fs_user.email not in str(data)
 
-    def test_updates_last_used_at(self, fs_db, fs_user):
+    @pytest.mark.asyncio
+    async def test_updates_last_used_at(self, fs_db, fs_user):
         raw, record = _make_token(fs_db, fs_user)
         assert record.last_used_at is None
-        resp = TestClient(self._app(fs_db)).get(
-            "/api/integrations/mcp/auth-check",
+        resp = await self._get(
+            self._app(fs_db),
             headers={"Authorization": f"Bearer {raw}"},
         )
         assert resp.status_code == 200
         fs_db.refresh(record)
         assert record.last_used_at is not None
 
-    def test_no_authorization_returns_401(self, fs_db):
-        resp = TestClient(self._app(fs_db)).get("/api/integrations/mcp/auth-check")
+    @pytest.mark.asyncio
+    async def test_no_authorization_returns_401(self, fs_db):
+        resp = await self._get(self._app(fs_db))
         assert resp.status_code == 401
 
-    def test_basic_auth_returns_401(self, fs_db):
-        resp = TestClient(self._app(fs_db)).get(
-            "/api/integrations/mcp/auth-check",
+    @pytest.mark.asyncio
+    async def test_basic_auth_returns_401(self, fs_db):
+        resp = await self._get(
+            self._app(fs_db),
             headers={"Authorization": "Basic dXNlcjpwYXNz"},
         )
         assert resp.status_code == 401
 
-    def test_invalid_bearer_returns_401(self, fs_db):
-        resp = TestClient(self._app(fs_db)).get(
-            "/api/integrations/mcp/auth-check",
+    @pytest.mark.asyncio
+    async def test_invalid_bearer_returns_401(self, fs_db):
+        resp = await self._get(
+            self._app(fs_db),
             headers={"Authorization": "Bearer huginn_mcp_invalid"},
         )
         assert resp.status_code == 401
 
-    def test_expired_token_returns_401(self, fs_db, fs_user):
+    @pytest.mark.asyncio
+    async def test_expired_token_returns_401(self, fs_db, fs_user):
         raw, record = _make_token(fs_db, fs_user, expires_in_days=-1)
-        resp = TestClient(self._app(fs_db)).get(
-            "/api/integrations/mcp/auth-check",
+        resp = await self._get(
+            self._app(fs_db),
             headers={"Authorization": f"Bearer {raw}"},
         )
         assert resp.status_code == 401
 
-    def test_revoked_token_returns_401(self, fs_db, fs_user):
+    @pytest.mark.asyncio
+    async def test_revoked_token_returns_401(self, fs_db, fs_user):
         raw, record = _make_token(fs_db, fs_user, revoked=True)
-        resp = TestClient(self._app(fs_db)).get(
-            "/api/integrations/mcp/auth-check",
+        resp = await self._get(
+            self._app(fs_db),
             headers={"Authorization": f"Bearer {raw}"},
         )
         assert resp.status_code == 401
 
-    def test_401_has_www_authenticate_header(self, fs_db):
-        resp = TestClient(self._app(fs_db)).get("/api/integrations/mcp/auth-check")
+    @pytest.mark.asyncio
+    async def test_401_has_www_authenticate_header(self, fs_db):
+        resp = await self._get(self._app(fs_db))
         assert resp.status_code == 401
         assert resp.headers.get("www-authenticate") == "Bearer"
 
-    def test_all_auth_errors_generic_message(self, fs_db):
+    @pytest.mark.asyncio
+    async def test_all_auth_errors_generic_message(self, fs_db):
         cases = [
             {},
             {"Authorization": "Bearer invalid"},
@@ -254,54 +276,59 @@ class TestAuthCheckHTTP:
             {"Authorization": "Bearer huginn_mcp_"},
         ]
         for headers in cases:
-            resp = TestClient(self._app(fs_db)).get(
-                "/api/integrations/mcp/auth-check",
+            resp = await self._get(
+                self._app(fs_db),
                 headers=headers,
             )
             assert resp.status_code == 401
             assert resp.json()["detail"] == "Credenciales MCP inválidas."
 
-    def test_cookie_web_without_bearer_does_not_authenticate(self, fs_db, fs_user):
+    @pytest.mark.asyncio
+    async def test_cookie_web_without_bearer_does_not_authenticate(self, fs_db, fs_user):
         now = _now()
         session = SessionModel(id=uuid.uuid4().hex[:16], user_id=fs_user.id, expires_at=now + timedelta(days=7))
         fs_db.add(session)
         fs_db.commit()
-        resp = TestClient(self._app(fs_db)).get(
-            "/api/integrations/mcp/auth-check",
-            cookies={"session": session.id},
+        resp = await self._get(
+            self._app(fs_db),
+            client_cookies={"session": session.id},
         )
         assert resp.status_code == 401
 
-    def test_cookie_plus_valid_bearer_authenticates_by_bearer(self, fs_db, fs_user):
+    @pytest.mark.asyncio
+    async def test_cookie_plus_valid_bearer_authenticates_by_bearer(self, fs_db, fs_user):
         raw, record = _make_token(fs_db, fs_user)
         now = _now()
         session = SessionModel(id=uuid.uuid4().hex[:16], user_id=fs_user.id, expires_at=now + timedelta(days=7))
         fs_db.add(session)
         fs_db.commit()
-        resp = TestClient(self._app(fs_db)).get(
-            "/api/integrations/mcp/auth-check",
+        resp = await self._get(
+            self._app(fs_db),
             headers={"Authorization": f"Bearer {raw}"},
-            cookies={"session": session.id},
+            client_cookies={"session": session.id},
         )
         assert resp.status_code == 200
 
-    def test_endpoint_not_caught_by_spa(self):
+    @pytest.mark.asyncio
+    async def test_endpoint_not_caught_by_spa(self):
         """auth-check debe ser ruta API real, devolver 401 no HTML."""
-        resp = TestClient(self._app(None)).get("/api/integrations/mcp/auth-check")
+        resp = await self._get(self._app(None))
         assert resp.status_code == 401
 
-    def test_response_content_type_json(self, fs_db, fs_user):
+    @pytest.mark.asyncio
+    async def test_response_content_type_json(self, fs_db, fs_user):
         raw, record = _make_token(fs_db, fs_user)
-        resp = TestClient(self._app(fs_db)).get(
-            "/api/integrations/mcp/auth-check",
+        resp = await self._get(
+            self._app(fs_db),
             headers={"Authorization": f"Bearer {raw}"},
         )
         assert "application/json" in resp.headers.get("content-type", "")
 
-    def test_response_has_expected_fields(self, fs_db, fs_user):
+    @pytest.mark.asyncio
+    async def test_response_has_expected_fields(self, fs_db, fs_user):
         raw, record = _make_token(fs_db, fs_user)
-        resp = TestClient(self._app(fs_db)).get(
-            "/api/integrations/mcp/auth-check",
+        resp = await self._get(
+            self._app(fs_db),
             headers={"Authorization": f"Bearer {raw}"},
         )
         expected = {"authenticated", "token_id", "token_prefix", "scopes", "constraints", "expires_at"}

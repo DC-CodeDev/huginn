@@ -283,7 +283,7 @@ class ResponseHeadersMiddleware:
 app.add_middleware(ResponseHeadersMiddleware)
 
 
-def get_current_user(
+async def get_current_user(
     db: Session = Depends(get_db),
     session_id: str = Cookie(default=None, alias=_COOKIE_SESSION),
 ) -> models.User:
@@ -741,15 +741,10 @@ def delete_edge(
 # ------------------------------------------------------------------ mcp tokens
 
 
-@app.post(
-    "/api/integrations/mcp/tokens",
-    response_model=schemas.MCPTokenCreated,
-    status_code=201,
-)
 def create_mcp_token(
     payload: schemas.MCPTokenCreate,
-    db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user),
+    db: Session,
+    current_user: models.User,
 ):
     return _handle_domain(
         _mcp_token_service_create,
@@ -759,25 +754,17 @@ def create_mcp_token(
     )
 
 
-@app.get(
-    "/api/integrations/mcp/tokens",
-    response_model=list[schemas.MCPTokenSummary],
-)
 def list_mcp_tokens(
-    db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user),
+    db: Session,
+    current_user: models.User,
 ):
     return _mcp_token_service_list(db=db, user_id=current_user.id)
 
 
-@app.post(
-    "/api/integrations/mcp/tokens/{token_id}/revoke",
-    response_model=schemas.MCPTokenSummary,
-)
 def revoke_mcp_token(
     token_id: str,
-    db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user),
+    db: Session,
+    current_user: models.User,
 ):
     return _handle_domain(
         _mcp_token_service_revoke,
@@ -787,14 +774,10 @@ def revoke_mcp_token(
     )
 
 
-@app.delete(
-    "/api/integrations/mcp/tokens/{token_id}",
-    status_code=204,
-)
 def delete_mcp_token(
     token_id: str,
-    db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user),
+    db: Session,
+    current_user: models.User,
 ):
     _handle_domain(
         _mcp_token_service_delete,
@@ -804,12 +787,8 @@ def delete_mcp_token(
     )
 
 
-@app.get(
-    "/api/integrations/mcp/auth-check",
-    response_model=schemas.MCPAuthCheck,
-)
 def mcp_auth_check(
-    ctx: schemas.MCPAuthCheck = Depends(_get_mcp_context),
+    ctx: schemas.MCPAuthCheck,
 ):
     """Endpoint temporal de diagnóstico para autenticación Bearer MCP.
 
@@ -838,9 +817,71 @@ def mcp_auth_check(
 # ------------------------------------------------------------------ health
 
 
-@app.api_route("/api/health", methods=["GET", "HEAD"])
 def health():
     return {"status": "ok"}
+
+
+@app.post(
+    "/api/integrations/mcp/tokens",
+    response_model=schemas.MCPTokenCreated,
+    status_code=201,
+)
+async def _create_mcp_token_http(
+    payload: schemas.MCPTokenCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    return create_mcp_token(payload, db=db, current_user=current_user)
+
+
+@app.get(
+    "/api/integrations/mcp/tokens",
+    response_model=list[schemas.MCPTokenSummary],
+)
+async def _list_mcp_tokens_http(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    return list_mcp_tokens(db=db, current_user=current_user)
+
+
+@app.post(
+    "/api/integrations/mcp/tokens/{token_id}/revoke",
+    response_model=schemas.MCPTokenSummary,
+)
+async def _revoke_mcp_token_http(
+    token_id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    return revoke_mcp_token(token_id, db=db, current_user=current_user)
+
+
+@app.delete(
+    "/api/integrations/mcp/tokens/{token_id}",
+    status_code=204,
+)
+async def _delete_mcp_token_http(
+    token_id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    return delete_mcp_token(token_id, db=db, current_user=current_user)
+
+
+@app.get(
+    "/api/integrations/mcp/auth-check",
+    response_model=schemas.MCPAuthCheck,
+)
+async def _mcp_auth_check_http(
+    ctx: schemas.MCPAuthCheck = Depends(_get_mcp_context),
+):
+    return mcp_auth_check(ctx)
+
+
+@app.api_route("/api/health", methods=["GET", "HEAD"])
+async def _health_http():
+    return health()
 
 
 # ------------------------------------------------------------------
@@ -851,9 +892,24 @@ def health():
 # activa cuando MCP_ENABLED=true.
 
 if _is_true(os.getenv("MCP_ENABLED")):
-    from starlette.routing import Mount as _Mount
-
+    from starlette.responses import RedirectResponse as _RedirectResponse
+    from fastapi import Request as _Request
     from .mcp.server import get_mcp_asgi
+
+    # Starlette's Mount("/mcp", …) uses regex ^/mcp/(?P<path>.*)$ which
+    # requires a trailing slash.  Add a permanent redirect so that clients
+    # configured with the bare "/mcp" URL are forwarded to "/mcp/" without
+    # losing the Authorization header (308 preserves method and headers).
+    @app.api_route(
+        "/mcp",
+        methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"],
+        include_in_schema=False,
+    )
+    async def _mcp_trailing_slash_redirect(request: _Request):  # type: ignore[misc]
+        return _RedirectResponse(
+            url=str(request.url).rstrip("/") + "/",
+            status_code=308,
+        )
 
     app.mount("/mcp", get_mcp_asgi())
 

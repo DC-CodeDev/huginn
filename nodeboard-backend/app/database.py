@@ -269,7 +269,7 @@ class Base(DeclarativeBase):
     pass
 
 
-def get_db():
+async def get_db():
     """Dependencia de FastAPI: una sesión por request."""
     db = SessionLocal()
     try:

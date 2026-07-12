@@ -90,3 +90,95 @@ class InvalidScope(ValidationFailure):
         sorted_scopes = ", ".join(sorted(scopes))
         message = f"Scopes no válidos: {sorted_scopes}"
         super().__init__(message)
+
+
+class OperationLimitExceeded(ValidationFailure):
+    """Se excedió el límite de operación permitido.
+
+    Indica que la cantidad de elementos en una operación batch
+    supera el máximo configurado.
+    """
+
+    def __init__(self, message: str):
+        self.message = message
+        super().__init__(message)
+
+
+class RateLimitExceeded(DomainError):
+    """La herramienta excedió su cuota temporal para el token actual."""
+
+    def __init__(
+        self,
+        *,
+        tool_name: str,
+        limit: int,
+        window_seconds: int,
+        retry_after_seconds: int,
+        message: str | None = None,
+    ):
+        self.tool_name = tool_name
+        self.limit = limit
+        self.window_seconds = window_seconds
+        self.retry_after_seconds = max(int(retry_after_seconds), 0)
+        self.message = (
+            message
+            or "Se alcanzó el límite de solicitudes para esta herramienta."
+        )
+        super().__init__(self.message)
+
+
+class IdempotencyConflict(DomainError):
+    """La clave ya fue usada para un payload distinto."""
+
+    def __init__(
+        self,
+        *,
+        tool_name: str,
+        idempotency_key: str,
+        message: str | None = None,
+    ):
+        self.tool_name = tool_name
+        self.idempotency_key = idempotency_key
+        self.message = (
+            message
+            or "La clave de idempotencia ya fue usada con un payload diferente."
+        )
+        super().__init__(self.message)
+
+
+class IdempotencyInProgress(DomainError):
+    """La operación idempotente sigue activa o quedó reservada."""
+
+    def __init__(
+        self,
+        *,
+        tool_name: str,
+        idempotency_key: str,
+        message: str | None = None,
+    ):
+        self.tool_name = tool_name
+        self.idempotency_key = idempotency_key
+        self.message = (
+            message
+            or "La operación asociada a esta clave de idempotencia sigue en progreso."
+        )
+        super().__init__(self.message)
+
+
+class IdempotencyStateUncertain(DomainError):
+    """La operación pudo haberse aplicado, pero su resultado no quedó confirmado."""
+
+    def __init__(
+        self,
+        *,
+        tool_name: str,
+        idempotency_key: str,
+        message: str | None = None,
+    ):
+        self.tool_name = tool_name
+        self.idempotency_key = idempotency_key
+        self.message = (
+            message
+            or "El estado de la operación idempotente es incierto; pudo haberse aplicado."
+        )
+        super().__init__(self.message)

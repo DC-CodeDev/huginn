@@ -420,6 +420,20 @@ def enforce_board_constraint(
             "El token no tiene acceso al board solicitado."
         )
 
+    enforce_board_constraint_for_board(context, board)
+
+
+def enforce_board_constraint_for_board(
+    context: MCPContext,
+    board: models.Board,
+) -> None:
+    """Verifica constraints MCP sobre un board ya cargado.
+
+    Reutiliza exactamente las mismas reglas de ``enforce_board_constraint``
+    pero evita una segunda consulta cuando el board ya fue resuelto por la
+    capa llamadora.
+    """
+
     # 2. Constraints adicionales
     constraints = context.constraints
     if constraints is None:
@@ -451,7 +465,7 @@ def enforce_board_constraint(
             raise ConstraintViolation(
                 "El token no tiene acceso a ningún board."
             )
-        if board_id not in allowed_boards:
+        if board.id not in allowed_boards:
             raise ConstraintViolation(
                 "El token no tiene acceso al board solicitado."
             )

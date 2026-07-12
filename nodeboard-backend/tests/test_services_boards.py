@@ -30,8 +30,8 @@ from app.services.errors import ResourceNotFound, ValidationFailure, VersionConf
 
 
 @pytest.fixture()
-def db():
-    """Sesión aislada contra una SQLite temporal con FK activadas."""
+def engine():
+    """Engine aislado contra una SQLite temporal con FK activadas."""
     engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
 
     @event.listens_for(Engine, "connect")
@@ -42,6 +42,12 @@ def db():
             pass
 
     Base.metadata.create_all(bind=engine)
+    return engine
+
+
+@pytest.fixture()
+def db(engine):
+    """Sesión aislada contra una SQLite temporal con FK activadas."""
     TestingSession = sessionmaker(bind=engine, autoflush=False, autocommit=False)
     session = TestingSession()
     try:
@@ -635,6 +641,46 @@ def test_concurrent_rename_conflict(db):
     board = db.get(Board, created.id)
     assert board.name == "X"
     assert board.version == 2
+
+
+def test_concurrent_rename_with_two_sessions(engine):
+    """Dos sesiones con la misma versión inicial: solo una puede persistir."""
+    TestingSession = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    setup = TestingSession()
+    try:
+        u = _user(setup)
+        user_id = u.id
+        st = _studio(setup, u)
+        created = create_board(setup, u.id, BoardCreate(name="B", studio_id=st.id))
+    finally:
+        setup.close()
+
+    db_a = TestingSession()
+    db_b = TestingSession()
+    try:
+        board_a = db_a.get(Board, created.id)
+        board_b = db_b.get(Board, created.id)
+        assert board_a.version == 1
+        assert board_b.version == 1
+
+        rename_board(db_a, user_id, created.id, BoardRename(name="A", expected_version=1))
+
+        with pytest.raises(VersionConflict) as exc:
+            rename_board(db_b, user_id, created.id, BoardRename(name="B", expected_version=1))
+
+        assert exc.value.expected_version == 1
+        assert exc.value.current_version == 2
+
+        verify = TestingSession()
+        try:
+            final = verify.get(Board, created.id)
+            assert final.name == "A"
+            assert final.version == 2
+        finally:
+            verify.close()
+    finally:
+        db_a.close()
+        db_b.close()
 
 
 def test_rename_rollback_on_failure(db, monkeypatch):

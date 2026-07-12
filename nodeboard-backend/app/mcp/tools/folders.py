@@ -5,13 +5,12 @@ Devuelve las carpetas de un estudio, aplicando constraints.
 import logging
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
 
 from ... import models
 from ... import database as _database
 from ...mcp.auth import require_scope, enforce_studio_constraint
 from ...services.authorization import get_owned_studio
-from ...services.errors import ResourceNotFound
+from ..read_guard import ReadResult, execute_read_tool
 from ..context import get_context
 
 logger = logging.getLogger(__name__)
@@ -30,50 +29,56 @@ def register(mcp) -> None:
     def list_folders(studio_id: str) -> dict:
         """Lista las carpetas de un estudio."""
         ctx = get_context()
-        require_scope(ctx, "folders:read")
 
-        with _database.SessionLocal() as db:
-            # Verificar ownership del estudio
-            try:
-                studio = get_owned_studio(db, ctx.user_id, studio_id)
-            except ResourceNotFound:
-                raise ValueError(f"Estudio no encontrado: {studio_id}")
+        def operation() -> ReadResult:
+            require_scope(ctx, "folders:read")
 
-            # Aplicar constraint del estudio
-            enforce_studio_constraint(ctx, studio_id)
+            with _database.SessionLocal() as db:
+                get_owned_studio(db, ctx.user_id, studio_id)
+                enforce_studio_constraint(ctx, studio_id)
 
-            query = (
-                select(models.Folder)
-                .where(models.Folder.studio_id == studio_id)
-                .order_by(models.Folder.name)
-                .limit(_MAX_FOLDERS)
-            )
+                query = (
+                    select(models.Folder)
+                    .where(models.Folder.studio_id == studio_id)
+                    .order_by(models.Folder.name)
+                    .limit(_MAX_FOLDERS)
+                )
 
-            # Si hay board_ids constraint, limitar a carpetas que contienen boards permitidos
-            constraints = ctx.constraints or {}
-            board_ids = constraints.get("board_ids")
-            if board_ids is not None:
-
-                subq = (
-                    select(models.Board.folder_id)
-                    .where(
+                constraints = ctx.constraints or {}
+                board_ids = constraints.get("board_ids")
+                if board_ids is not None:
+                    subq = select(models.Board.folder_id).where(
                         models.Board.id.in_(board_ids),
                         models.Board.folder_id.isnot(None),
-                    )
-                    .distinct()
-                    .subquery()
+                    ).distinct()
+                    query = query.where(models.Folder.id.in_(subq))
+
+                folders = db.scalars(query).all()
+                response = {
+                    "folders": [
+                        {
+                            "id": f.id,
+                            "studio_id": f.studio_id,
+                            "name": f.name,
+                        }
+                        for f in folders
+                    ]
+                }
+                returned_count = len(folders)
+                return ReadResult(
+                    response=response,
+                    resource_type="studio",
+                    resource_id=studio_id,
+                    returned_count=returned_count,
+                    metadata={"returned_count": returned_count},
                 )
-                query = query.where(models.Folder.id.in_(subq))
 
-            folders = db.scalars(query).all()
-
-            return {
-                "folders": [
-                    {
-                        "id": f.id,
-                        "studio_id": f.studio_id,
-                        "name": f.name,
-                    }
-                    for f in folders
-                ]
-            }
+        return execute_read_tool(
+            _database.SessionLocal,
+            ctx=ctx,
+            tool_name="list_folders",
+            capability_type="folder",
+            audit_resource_type="studio",
+            audit_resource_id=studio_id,
+            operation=operation,
+        )

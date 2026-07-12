@@ -15,7 +15,6 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 import pytest
-from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -636,8 +635,7 @@ class TestEnforceBoardConstraint:
 # ======================================================================
 # Tests HTTP del endpoint auth-check
 #
-# IMPORTANTE: Usan base sobre ARCHIVO TEMPORAL (no :memory:).
-# El TestClient ejecuta el lifespan (Alembic), que provoca que el pool
-# de conexiones de :memory: cree una base independiente por conexión,
-# perdiendo los datos.
+# IMPORTANTE: Los tests HTTP viven en ``test_mcp_auth_http.py`` y usan
+# ``httpx.AsyncClient`` sobre ASGI con una base sobre archivo temporal.
+# Eso evita el warning de TestClient y conserva una sola BD real por test.
 # ======================================================================

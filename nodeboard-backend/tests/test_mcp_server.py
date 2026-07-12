@@ -6,9 +6,9 @@ verificar que el servidor se construye correctamente).
 import os
 from unittest.mock import patch
 
+import httpx
 import pytest
 from fastapi import FastAPI
-from fastapi.testclient import TestClient
 
 from app.mcp.server import _build_mcp, get_mcp_asgi, reset
 
@@ -66,39 +66,43 @@ class TestServerConstruction:
 
 
 class TestFeatureFlag:
-    def test_default_disabled(self):
+    @pytest.mark.asyncio
+    async def test_default_disabled(self):
         """MCP_ENABLED ausente → servidor no montado."""
         # Crear app sin MCP
         app = FastAPI()
         @app.get("/api/health")
-        def health():
+        async def health():
             return {"status": "ok"}
         @app.get("/{full_path:path}", include_in_schema=False)
-        def catch_all(full_path: str):
+        async def catch_all(full_path: str):
             return {"path": full_path}
 
         with patch.dict(os.environ, {}, clear=True):
-            client = TestClient(app)
-            resp = client.get("/mcp")
-            # Sin montaje MCP → cae en catch-all
-            assert resp.status_code == 200
-            assert resp.json()["path"] == "mcp"
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+                resp = await client.get("/mcp")
+                # Sin montaje MCP → cae en catch-all
+                assert resp.status_code == 200
+                assert resp.json()["path"] == "mcp"
 
-    def test_explicit_disabled(self):
+    @pytest.mark.asyncio
+    async def test_explicit_disabled(self):
         """MCP_ENABLED=false → servidor no montado."""
         app = FastAPI()
         @app.get("/api/health")
-        def health():
+        async def health():
             return {"status": "ok"}
         @app.get("/{full_path:path}", include_in_schema=False)
-        def catch_all(full_path: str):
+        async def catch_all(full_path: str):
             return {"path": full_path}
 
         with patch.dict(os.environ, {"MCP_ENABLED": "false"}, clear=True):
-            client = TestClient(app)
-            resp = client.get("/mcp")
-            assert resp.status_code == 200
-            assert resp.json()["path"] == "mcp"
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+                resp = await client.get("/mcp")
+                assert resp.status_code == 200
+                assert resp.json()["path"] == "mcp"
 
     @pytest.mark.parametrize("truthy", ["1", "true", "yes", "on", "True", "YES", "ON"])
     def test_truthy_values(self, truthy):

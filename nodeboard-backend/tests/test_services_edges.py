@@ -15,13 +15,13 @@ from sqlalchemy.orm import sessionmaker
 from app.database import Base
 from app.models import Board, Edge, Node, Studio, User
 from app.schemas import EdgeSchema, EdgeUpdate, PortRef
-from app.services.edges import create_edge, delete_edge, update_edge
+from app.services.edges import create_edge, create_edges_batch, delete_edge, update_edge
 from app.services.errors import ResourceNotFound, ValidationFailure, VersionConflict
 
 
 @pytest.fixture()
-def db():
-    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+def engine():
+    e = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
 
     @event.listens_for(Engine, "connect")
     def _set_fk(dbapi_conn, _):
@@ -30,7 +30,12 @@ def db():
         except Exception:
             pass
 
-    Base.metadata.create_all(bind=engine)
+    Base.metadata.create_all(bind=e)
+    return e
+
+
+@pytest.fixture()
+def db(engine):
     TestingSession = sessionmaker(bind=engine, autoflush=False, autocommit=False)
     session = TestingSession()
     try:
@@ -430,3 +435,441 @@ def test_concurrent_create_edge_conflict(db):
         create_edge(db, u.id, b.id, _edge_schema("e2"), expected_version=1)
     db.expire_all()
     assert db.get(Board, b.id).version == 2
+
+
+# ======================================================================
+# port validation
+# ======================================================================
+
+
+def test_create_edge_valid_port_source(db):
+    """Puerto origen existente es válido."""
+    u = _user(db)
+    b = _board(db, u)
+    _node(db, b, "n1")
+    _node(db, b, "n2")
+    n1 = db.get(Node, "n1")
+    n1.ports = [{"id": "p", "side": "left", "color": "#4ADE80", "label": "in"}]
+    db.commit()
+    result = create_edge(
+        db, u.id, b.id,
+        _edge_schema("e1", from_n="n1", to_n="n2"),
+        expected_version=1,
+    )
+    assert result.id == "e1"
+
+
+def test_create_edge_invalid_port_source_fails(db):
+    u = _user(db)
+    b = _board(db, u)
+    _node(db, b, "n1")
+    _node(db, b, "n2")
+    n1 = db.get(Node, "n1")
+    n1.ports = [{"id": "p1", "side": "left", "color": "#4ADE80", "label": "in"}]
+    db.commit()
+    with pytest.raises(ValidationFailure, match="Puerto origen"):
+        create_edge(
+            db, u.id, b.id,
+            _edge_schema("e1", from_n="n1", to_n="n2"),
+            expected_version=1,
+        )
+
+
+def test_create_edge_invalid_port_target_fails(db):
+    u = _user(db)
+    b = _board(db, u)
+    _node(db, b, "n1")
+    _node(db, b, "n2")
+    n2 = db.get(Node, "n2")
+    n2.ports = [{"id": "p2", "side": "right", "color": "#60A5FA", "label": "out"}]
+    db.commit()
+    with pytest.raises(ValidationFailure, match="Puerto destino"):
+        create_edge(
+            db, u.id, b.id,
+            _edge_schema("e1", from_n="n1", to_n="n2"),
+            expected_version=1,
+        )
+
+
+def test_create_edge_both_ports_valid(db):
+    u = _user(db)
+    b = _board(db, u)
+    _node(db, b, "n1")
+    _node(db, b, "n2")
+    n1 = db.get(Node, "n1")
+    n1.ports = [{"id": "p", "side": "left", "color": "#4ADE80", "label": "in"}]
+    n2 = db.get(Node, "n2")
+    n2.ports = [{"id": "p", "side": "right", "color": "#60A5FA", "label": "out"}]
+    db.commit()
+    result = create_edge(
+        db, u.id, b.id,
+        _edge_schema("e1", from_n="n1", to_n="n2"),
+        expected_version=1,
+    )
+    assert result.id == "e1"
+
+
+def test_create_edge_preloaded_board(db):
+    u = _user(db)
+    b, n1, n2 = _two_nodes(db, user=u)
+    board_obj = db.get(Board, b.id)
+    result = create_edge(
+        db, u.id, b.id, _edge_schema("e1"), expected_version=1,
+        board=board_obj,
+    )
+    assert result.id == "e1"
+    db.expire_all()
+    assert db.get(Board, b.id).version == 2
+
+
+def test_create_edge_no_ports_on_nodes_skips_validation(db):
+    """Si los nodos no tienen puertos, la validación se salta."""
+    u = _user(db)
+    b, n1, n2 = _two_nodes(db, user=u)
+    result = create_edge(
+        db, u.id, b.id, _edge_schema("e1"), expected_version=1,
+    )
+    assert result.id == "e1"
+
+
+def test_create_edge_self_edge_allowed(db):
+    """El dominio permite conectar un nodo consigo mismo."""
+    u = _user(db)
+    b = _board(db, u)
+    _node(db, b, "n1")
+    result = create_edge(
+        db, u.id, b.id,
+        _edge_schema("e1", from_n="n1", to_n="n1"),
+        expected_version=1,
+    )
+    assert result.id == "e1"
+    assert result.from_.nodeId == "n1"
+    assert result.to.nodeId == "n1"
+
+
+def test_create_edge_duplicates_allowed(db):
+    """El dominio permite múltiples edges idénticos."""
+    u = _user(db)
+    b, n1, n2 = _two_nodes(db, user=u)
+    create_edge(db, u.id, b.id, _edge_schema("e1"), expected_version=1)
+    result = create_edge(db, u.id, b.id, _edge_schema("e2"), expected_version=2)
+    assert result.id == "e2"
+    db.expire_all()
+    count = db.query(Edge).filter(
+        Edge.from_node == "n1", Edge.to_node == "n2"
+    ).count()
+    assert count == 2
+
+
+def test_create_edge_concurrent_two_sessions(engine):
+    TestingSession = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    setup = TestingSession()
+    try:
+        u = _user(setup)
+        user_id = u.id
+        b = _board(setup, u)
+        board_id = b.id
+        _node(setup, b, "n1")
+        _node(setup, b, "n2")
+    finally:
+        setup.close()
+
+    db_a = TestingSession()
+    db_b = TestingSession()
+    try:
+        create_edge(db_a, user_id, board_id, _edge_schema("e1"), expected_version=1)
+        with pytest.raises(VersionConflict) as exc:
+            create_edge(db_b, user_id, board_id, _edge_schema("e2"), expected_version=1)
+        assert exc.value.expected_version == 1
+        assert exc.value.current_version == 2
+
+        verify = TestingSession()
+        try:
+            edges = verify.query(Edge).filter(Edge.board_id == board_id).all()
+            board = verify.get(Board, board_id)
+            assert len(edges) == 1
+            assert edges[0].id == "e1"
+            assert board.version == 2
+        finally:
+            verify.close()
+    finally:
+        db_a.close()
+        db_b.close()
+
+
+# ======================================================================
+# create_edges_batch
+# ======================================================================
+
+
+def _two_nodes_in(db, board, n1_id="n1", n2_id="n2"):
+    """Crea dos nodos en *board* y devuelve sus IDs."""
+    _node(db, board, n1_id)
+    _node(db, board, n2_id)
+    return n1_id, n2_id
+
+
+def _batch_edge_schemas(from_n="n1", to_n="n2", count=1, **overrides) -> list[EdgeSchema]:
+    return [
+        EdgeSchema(
+            id=None,
+            from_=PortRef(nodeId=from_n, portId="p"),
+            to=PortRef(nodeId=to_n, portId="p"),
+            label=f"edge-{i}",
+            **overrides,
+        )
+        for i in range(count)
+    ]
+
+
+def test_create_edges_batch_single(db):
+    u = _user(db)
+    b = _board(db, u)
+    _two_nodes_in(db, b)
+    result = create_edges_batch(db, u.id, b.id, _batch_edge_schemas(count=1), expected_version=1)
+    assert len(result["edges"]) == 1
+    assert result["edges"][0].label == "edge-0"
+    assert result["client_map"] == {0: result["edges"][0].id}
+    db.expire_all()
+    assert db.get(Board, b.id).version == 2
+
+
+def test_create_edges_batch_multiple(db):
+    u = _user(db)
+    b = _board(db, u)
+    _two_nodes_in(db, b)
+    payloads = _batch_edge_schemas(count=3)
+    result = create_edges_batch(db, u.id, b.id, payloads, expected_version=1)
+    assert len(result["edges"]) == 3
+    assert [e.label for e in result["edges"]] == ["edge-0", "edge-1", "edge-2"]
+    assert len(result["client_map"]) == 3
+
+
+def test_create_edges_batch_preserves_order(db):
+    u = _user(db)
+    b = _board(db, u)
+    _two_nodes_in(db, b)
+    payloads = [
+        EdgeSchema(id=None, from_=PortRef(nodeId="n1", portId="p"), to=PortRef(nodeId="n2", portId="p"), label="Z"),
+        EdgeSchema(id=None, from_=PortRef(nodeId="n1", portId="p"), to=PortRef(nodeId="n2", portId="p"), label="A"),
+        EdgeSchema(id=None, from_=PortRef(nodeId="n1", portId="p"), to=PortRef(nodeId="n2", portId="p"), label="M"),
+    ]
+    result = create_edges_batch(db, u.id, b.id, payloads, expected_version=1)
+    assert [e.label for e in result["edges"]] == ["Z", "A", "M"]
+
+
+def test_create_edges_batch_generates_ids(db):
+    u = _user(db)
+    b = _board(db, u)
+    _two_nodes_in(db, b)
+    result = create_edges_batch(db, u.id, b.id, _batch_edge_schemas(count=2), expected_version=1)
+    for e in result["edges"]:
+        assert e.id is not None
+        assert len(e.id) == 32
+    assert result["edges"][0].id != result["edges"][1].id
+
+
+def test_create_edges_batch_increments_version_once(db):
+    u = _user(db)
+    b = _board(db, u)
+    _two_nodes_in(db, b)
+    create_edges_batch(db, u.id, b.id, _batch_edge_schemas(count=5), expected_version=1)
+    db.expire_all()
+    assert db.get(Board, b.id).version == 2
+
+
+def test_create_edges_batch_updates_timestamp(db):
+    u = _user(db)
+    b = _board(db, u)
+    _two_nodes_in(db, b)
+    orig = b.updated_at
+    import time
+    time.sleep(0.02)
+    create_edges_batch(db, u.id, b.id, _batch_edge_schemas(count=1), expected_version=1)
+    db.expire_all()
+    assert db.get(Board, b.id).updated_at > orig
+
+
+def test_create_edges_batch_preloaded_board(db):
+    u = _user(db)
+    b = _board(db, u)
+    _two_nodes_in(db, b)
+    board_obj = db.get(Board, b.id)
+    result = create_edges_batch(
+        db, u.id, b.id, _batch_edge_schemas(count=1), expected_version=1, board=board_obj,
+    )
+    assert result["edges"][0].label == "edge-0"
+
+
+def test_create_edges_batch_wrong_version_fails(db):
+    u = _user(db)
+    b = _board(db, u)
+    _two_nodes_in(db, b)
+    with pytest.raises(VersionConflict):
+        create_edges_batch(db, u.id, b.id, _batch_edge_schemas(count=1), expected_version=99)
+    db.expire_all()
+    assert db.get(Board, b.id).version == 1
+
+
+def test_create_edges_batch_source_node_missing_fails(db):
+    u = _user(db)
+    b = _board(db, u)
+    _node(db, b, "n2")  # solo n2
+    with pytest.raises(ValidationFailure):
+        create_edges_batch(db, u.id, b.id, _batch_edge_schemas(from_n="n1", to_n="n2", count=1), expected_version=1)
+
+
+def test_create_edges_batch_target_node_missing_fails(db):
+    u = _user(db)
+    b = _board(db, u)
+    _node(db, b, "n1")  # solo n1
+    with pytest.raises(ValidationFailure):
+        create_edges_batch(db, u.id, b.id, _batch_edge_schemas(from_n="n1", to_n="n2", count=1), expected_version=1)
+
+
+def test_create_edges_batch_node_from_other_board_fails(db):
+    u = _user(db)
+    b1, _, _ = _two_nodes(db, user=u)
+    b2 = _board(db, u)
+    _node(db, b2, "n3")
+    # n1 está en b1, n3 en b2 → edge en b1 con destino n3 falla
+    with pytest.raises(ValidationFailure):
+        payloads = [
+            EdgeSchema(id=None, from_=PortRef(nodeId="n1", portId="p"), to=PortRef(nodeId="n3", portId="p")),
+        ]
+        create_edges_batch(db, u.id, b1.id, payloads, expected_version=1)
+
+
+def test_create_edges_batch_other_board_fails(db):
+    a = _user(db, "a@test.com")
+    b_user = _user(db, "b@test.com")
+    ba, _, _ = _two_nodes(db, user=a)
+    with pytest.raises(ResourceNotFound):
+        create_edges_batch(db, b_user.id, ba.id, _batch_edge_schemas(count=1), expected_version=1)
+
+
+def test_create_edges_batch_nonexistent_board_fails(db):
+    u = _user(db)
+    with pytest.raises(ResourceNotFound):
+        create_edges_batch(db, u.id, "no-such-board", _batch_edge_schemas(count=1), expected_version=1)
+
+
+def test_create_edges_batch_valid_ports(db):
+    u = _user(db)
+    b = _board(db, u)
+    _node(db, b, "n1")
+    _node(db, b, "n2")
+    n1 = db.get(Node, "n1")
+    n1.ports = [{"id": "out", "side": "right", "color": "#60A5FA", "label": ""}]
+    n2 = db.get(Node, "n2")
+    n2.ports = [{"id": "in", "side": "left", "color": "#4ADE80", "label": ""}]
+    db.commit()
+    payloads = [
+        EdgeSchema(id=None, from_=PortRef(nodeId="n1", portId="out"), to=PortRef(nodeId="n2", portId="in")),
+    ]
+    result = create_edges_batch(db, u.id, b.id, payloads, expected_version=1)
+    assert len(result["edges"]) == 1
+
+
+def test_create_edges_batch_invalid_port_fails(db):
+    u = _user(db)
+    b = _board(db, u)
+    _node(db, b, "n1")
+    _node(db, b, "n2")
+    n1 = db.get(Node, "n1")
+    n1.ports = [{"id": "p1", "side": "left", "color": "#4ADE80", "label": "in"}]
+    db.commit()
+    with pytest.raises(ValidationFailure):
+        payloads = [
+            EdgeSchema(id=None, from_=PortRef(nodeId="n1", portId="nonexistent"), to=PortRef(nodeId="n2", portId="p")),
+        ]
+        create_edges_batch(db, u.id, b.id, payloads, expected_version=1)
+
+
+def test_create_edges_batch_self_edge(db):
+    u = _user(db)
+    b = _board(db, u)
+    _node(db, b, "n1")
+    payloads = [
+        EdgeSchema(id=None, from_=PortRef(nodeId="n1", portId="p"), to=PortRef(nodeId="n1", portId="p")),
+    ]
+    result = create_edges_batch(db, u.id, b.id, payloads, expected_version=1)
+    assert len(result["edges"]) == 1
+    assert result["edges"][0].from_.nodeId == "n1"
+    assert result["edges"][0].to.nodeId == "n1"
+
+
+def test_create_edges_batch_duplicates_allowed(db):
+    u = _user(db)
+    b = _board(db, u)
+    _two_nodes_in(db, b)
+    payloads = _batch_edge_schemas(count=2)
+    result = create_edges_batch(db, u.id, b.id, payloads, expected_version=1)
+    assert len(result["edges"]) == 2
+
+
+def test_create_edges_batch_rollback_mid_batch(db, monkeypatch):
+    u = _user(db)
+    b = _board(db, u)
+    _two_nodes_in(db, b)
+
+    def _failing_commit():
+        raise RuntimeError("mid-batch boom")
+
+    monkeypatch.setattr(db, "commit", _failing_commit)
+    with pytest.raises(RuntimeError):
+        create_edges_batch(db, u.id, b.id, _batch_edge_schemas(count=2), expected_version=1)
+    db.rollback()
+    db.expire_all()
+    assert db.get(Board, b.id).version == 1
+    assert db.query(Edge).filter(Edge.board_id == b.id).count() == 0
+
+
+def test_create_edges_batch_preserves_existing(db):
+    u = _user(db)
+    b = _board(db, u)
+    _two_nodes_in(db, b)
+    create_edge(db, u.id, b.id, _edge_schema("existing"), expected_version=1)
+    result = create_edges_batch(db, u.id, b.id, _batch_edge_schemas(count=1), expected_version=2)
+    db.expire_all()
+    assert db.get(Edge, "existing") is not None
+    assert len(result["edges"]) == 1
+
+
+def test_create_edges_batch_concurrent_conflict(engine):
+    TestingSession = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    setup = TestingSession()
+    try:
+        u = _user(setup)
+        user_id = u.id
+        b = _board(setup, u)
+        board_id = b.id
+        _node(setup, b, "n1")
+        _node(setup, b, "n2")
+    finally:
+        setup.close()
+
+    db_a = TestingSession()
+    db_b = TestingSession()
+    try:
+        p1 = [EdgeSchema(id=None, from_=PortRef(nodeId="n1", portId="p"), to=PortRef(nodeId="n2", portId="p"), label="Ganador")]
+        p2 = [EdgeSchema(id=None, from_=PortRef(nodeId="n1", portId="p"), to=PortRef(nodeId="n2", portId="p"), label="Perdedor")]
+        result_a = create_edges_batch(db_a, user_id, board_id, p1, expected_version=1)
+        assert len(result_a["edges"]) == 1
+        with pytest.raises(VersionConflict) as exc:
+            create_edges_batch(db_b, user_id, board_id, p2, expected_version=1)
+        assert exc.value.expected_version == 1
+        assert exc.value.current_version == 2
+
+        verify = TestingSession()
+        try:
+            edges = verify.query(Edge).filter(Edge.board_id == board_id).all()
+            board = verify.get(Board, board_id)
+            assert len(edges) == 1
+            assert edges[0].label == "Ganador"
+            assert board.version == 2
+        finally:
+            verify.close()
+    finally:
+        db_a.close()
+        db_b.close()

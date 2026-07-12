@@ -130,6 +130,14 @@ class MCPAuthMiddleware:
             await self.app(scope, receive, send)
             return
 
+        # Starlette's Mount strips the prefix: /mcp → path="", /mcp/ → path="/".
+        # Normalise empty path to "/" so the Streamable HTTP handler matches
+        # regardless of whether the client sends a trailing slash.
+        if scope.get("path") == "":
+            scope = {**scope, "path": "/"}
+
+        body, replay_receive = await _buffer_request_body(receive)
+
         # Extraer header Authorization
         headers = dict(scope.get("headers", []))
         auth_value = headers.get(b"authorization")
@@ -148,6 +156,16 @@ class MCPAuthMiddleware:
             ctx = authenticate_mcp_token(
                 db, raw_token, update_last_used=True
             )
+            ctx = MCPContext(
+                user_id=ctx.user_id,
+                token_id=ctx.token_id,
+                scopes=ctx.scopes,
+                constraints=ctx.constraints,
+                token_prefix=ctx.token_prefix,
+                expires_at=ctx.expires_at,
+                client_name=_extract_client_name(headers),
+                request_id=_extract_request_id(body),
+            )
         except (
             ExpiredMCPToken,
             RevokedMCPToken,
@@ -162,7 +180,7 @@ class MCPAuthMiddleware:
         # Propagar contexto a las tools
         reset_token = mcp_context_var.set(ctx)
         try:
-            await self.app(scope, receive, send)
+            await self.app(scope, replay_receive, send)
         finally:
             mcp_context_var.reset(reset_token)
 
@@ -185,3 +203,54 @@ async def _send_401(scope: Scope, receive: Receive, send: Send) -> None:
         "type": "http.response.body",
         "body": body,
     })
+
+
+async def _buffer_request_body(receive: Receive) -> tuple[bytes, Receive]:
+    messages: list[dict] = []
+    body_parts: list[bytes] = []
+
+    while True:
+        message = await receive()
+        messages.append(message)
+        if message["type"] != "http.request":
+            break
+        chunk = message.get("body", b"")
+        if chunk:
+            body_parts.append(chunk)
+        if not message.get("more_body", False):
+            break
+
+    async def replay_receive() -> dict:
+        if messages:
+            return messages.pop(0)
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    return b"".join(body_parts), replay_receive
+
+
+def _extract_request_id(body: bytes) -> str | None:
+    if not body:
+        return None
+
+    try:
+        payload = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return None
+
+    if isinstance(payload, dict) and "id" in payload:
+        return str(payload["id"])
+    return None
+
+
+def _extract_client_name(headers: dict[bytes, bytes]) -> str | None:
+    for key in (b"x-client-name", b"x-mcp-client-name", b"user-agent"):
+        value = headers.get(key)
+        if value is None:
+            continue
+        try:
+            decoded = value.decode("utf-8").strip()
+        except UnicodeDecodeError:
+            continue
+        if decoded:
+            return decoded[:200]
+    return None
