@@ -69,7 +69,7 @@ export function Home({ onStudioClick }: HomeProps) {
             width: "100%", minHeight: "var(--app-dvh)",
             background: "var(--bg)",
             display: "flex", flexDirection: "column",
-            padding: "calc(52px + var(--safe-top)) calc(60px + var(--safe-right)) calc(52px + var(--safe-bottom)) calc(60px + var(--safe-left))",
+            padding: "calc(56px + var(--safe-top) + 40px) calc(60px + var(--safe-right)) calc(52px + var(--safe-bottom)) calc(60px + var(--safe-left))",
             fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif",
             color: "var(--text)",
           }}
@@ -144,7 +144,7 @@ export function Home({ onStudioClick }: HomeProps) {
           style={{
             width: "100%", minHeight: "var(--app-dvh)",
             background: "var(--bg)",
-            padding: "calc(52px + var(--safe-top)) calc(60px + var(--safe-right)) calc(52px + var(--safe-bottom)) calc(60px + var(--safe-left))",
+            padding: "calc(56px + var(--safe-top) + 40px) calc(60px + var(--safe-right)) calc(52px + var(--safe-bottom)) calc(60px + var(--safe-left))",
             fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif",
             color: "var(--text)",
           }}

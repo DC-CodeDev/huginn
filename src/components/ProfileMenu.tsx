@@ -9,12 +9,13 @@ interface ProfileMenuProps {
   T: Theme;
   theme: string;
   user: User;
+  menuRight?: string;
   onLogout: () => void;
   onCloseProfile: () => void;
   onClose: () => void;
 }
 
-export function ProfileMenu({ show, T, theme, user, onLogout, onCloseProfile, onClose }: ProfileMenuProps) {
+export function ProfileMenu({ show, T, theme, user, menuRight, onLogout, onCloseProfile, onClose }: ProfileMenuProps) {
   const fadeScale = useFadeScale({
     show,
     className: `absolute top-0 right-0 z-50 origin-top-right ${show ? "" : "pointer-events-none"}`,
@@ -35,7 +36,7 @@ export function ProfileMenu({ show, T, theme, user, onLogout, onCloseProfile, on
           className="rounded-xl py-1.5 min-w-[180px]"
           style={{
             marginTop: "calc(56px + var(--safe-top))",
-            marginRight: "calc(16px + var(--safe-right))",
+            marginRight: menuRight ?? "calc(16px + var(--safe-right))",
             background: T.card,
             border: `1px solid ${T.cardBorder}`,
             boxShadow: theme === "dark"

@@ -4,7 +4,7 @@ import NodeBoard from "./NodeBoard";
 import { Home } from "./components/Home";
 import { StudioView } from "./components/StudioView";
 import { FolderView } from "./components/FolderView";
-import { AppBar } from "./components/AppBar";
+import { NavBar } from "./components/NavBar";
 import { PwaNoticeCenter } from "./components/PwaNoticeCenter";
 import { SettingsModal } from "./components/SettingsModal";
 import { ProfileMenu } from "./components/ProfileMenu";
@@ -95,12 +95,33 @@ function AppInner() {
     [],
   );
 
-  const showBar = view.kind !== "board";
-
   const closeProfile = useCallback(() => {
     setProfileOpen(false);
     setView({ kind: "home" });
   }, []);
+
+  const navBar = user && view.kind !== "board" ? (
+    <NavBar
+      user={user}
+      theme={theme}
+      onHomeClick={navigateHome}
+      onToggleTheme={toggleTheme}
+      onSettingsClick={() => { setSettingsOpen(true); setProfileOpen(false); }}
+      onProfileClick={() => { setProfileOpen((v) => !v); setSettingsOpen(false); }}
+    />
+  ) : null;
+
+  const sharedModals = user ? (
+    <>
+      <SettingsModal
+        show={settingsOpen}
+        T={T} theme={theme} mode="app"
+        onToggleTheme={toggleTheme}
+        onClose={() => setSettingsOpen(false)}
+      />
+      <ProfileMenu show={profileOpen} T={T} theme={theme} user={user} menuRight="calc(60px + var(--safe-right))" onLogout={logout} onCloseProfile={closeProfile} onClose={() => setProfileOpen(false)} />
+    </>
+  ) : null;
 
   // ── Auth: determinar pantalla ─────────────────────────────────
 
@@ -128,53 +149,35 @@ function AppInner() {
     case "home":
       return (
         <>
-          {showBar && <AppBar T={T} theme={theme} onToggleTheme={toggleTheme} onSettingsClick={() => { setSettingsOpen(true); setProfileOpen(false); }} onProfileClick={() => { setProfileOpen((v) => !v); setSettingsOpen(false); }} />}
+          {navBar}
           <Home onStudioClick={navigateStudio} />
-          <SettingsModal
-            show={settingsOpen}
-            T={T} theme={theme} mode="app"
-            onToggleTheme={toggleTheme}
-            onClose={() => setSettingsOpen(false)}
-          />
-          <ProfileMenu show={profileOpen} T={T} theme={theme} user={user} onLogout={logout} onCloseProfile={closeProfile} onClose={() => setProfileOpen(false)} />
+          {sharedModals}
         </>
       );
     case "studio":
       return (
         <>
-          {showBar && <AppBar T={T} theme={theme} onToggleTheme={toggleTheme} onSettingsClick={() => { setSettingsOpen(true); setProfileOpen(false); }} onProfileClick={() => { setProfileOpen((v) => !v); setSettingsOpen(false); }} />}
+          {navBar}
           <StudioView
             studioId={view.studioId}
             onBack={navigateHome}
             onFolderClick={(folderId) => navigateFolder(folderId, view.studioId)}
             onBoardClick={(boardId) => navigateBoard(boardId, view)}
           />
-          <SettingsModal
-            show={settingsOpen}
-            T={T} theme={theme} mode="app"
-            onToggleTheme={toggleTheme}
-            onClose={() => setSettingsOpen(false)}
-          />
-          <ProfileMenu show={profileOpen} T={T} theme={theme} user={user} onLogout={logout} onCloseProfile={closeProfile} onClose={() => setProfileOpen(false)} />
+          {sharedModals}
         </>
       );
     case "folder":
       return (
         <>
-          {showBar && <AppBar T={T} theme={theme} onToggleTheme={toggleTheme} onSettingsClick={() => { setSettingsOpen(true); setProfileOpen(false); }} onProfileClick={() => { setProfileOpen((v) => !v); setSettingsOpen(false); }} />}
+          {navBar}
           <FolderView
             folderId={view.folderId}
             studioId={view.studioId}
             onBack={() => navigateStudio(view.studioId)}
             onBoardClick={(boardId) => navigateBoard(boardId, view)}
           />
-          <SettingsModal
-            show={settingsOpen}
-            T={T} theme={theme} mode="app"
-            onToggleTheme={toggleTheme}
-            onClose={() => setSettingsOpen(false)}
-          />
-          <ProfileMenu show={profileOpen} T={T} theme={theme} user={user} onLogout={logout} onCloseProfile={closeProfile} onClose={() => setProfileOpen(false)} />
+          {sharedModals}
         </>
       );
     case "board":
