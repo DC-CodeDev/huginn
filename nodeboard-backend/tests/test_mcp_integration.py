@@ -1949,6 +1949,7 @@ class TestApplyBoardPatchIntegration:
 
     @pytest.mark.asyncio
     async def test_read_tool_rate_limit_is_audited_in_real_mcp_flow(self, fs_db, fs_user, monkeypatch):
+
         from mcp.client.streamable_http import streamable_http_client
         from mcp import ClientSession
         import json
@@ -2000,3 +2001,83 @@ class TestApplyBoardPatchIntegration:
             }
         finally:
             verify_session.close()
+
+
+class TestProductionMiddlewareChain:
+    """POST /mcp/ sin token → 401 en <2 s; con token → 16 tools en <5 s.
+
+    Atraviesa la cadena completa de producción:
+    ResponseHeadersMiddleware → CORSMiddleware → FastAPI Router →
+    Mount(/mcp) → MCPAuthMiddleware → Starlette sub-app →
+    StreamableHTTP → servidor MCP.
+    """
+
+    @asynccontextmanager
+    async def _prod_app(self, TestSession):
+        from fastapi.middleware.cors import CORSMiddleware as _CORS
+        from app.mcp.server import reset as _reset, get_mcp_asgi, mcp_lifespan
+        from app.main import ResponseHeadersMiddleware
+        import app.database as db_module
+
+        _reset()
+        test_app = FastAPI()
+        test_app.add_middleware(
+            _CORS,
+            allow_origins=["*"],
+            allow_methods=["*"],
+            allow_headers=["*"],
+            allow_credentials=True,
+        )
+        test_app.add_middleware(ResponseHeadersMiddleware)
+        test_app.mount("/mcp", get_mcp_asgi())
+
+        with patch.object(db_module, "SessionLocal", TestSession):
+            async with mcp_lifespan():
+                yield test_app
+
+    @pytest.mark.asyncio
+    async def test_no_token_post_returns_401_in_under_2s(self, fs_db):
+        import time
+
+        _, TestSession = fs_db
+        async with self._prod_app(TestSession) as app:
+            start = time.monotonic()
+            async with httpx.AsyncClient(
+                transport=ASGITransport(app=app),
+                base_url="http://test",
+            ) as client:
+                resp = await client.post(
+                    "/mcp/",
+                    json={"jsonrpc": "2.0", "method": "initialize", "id": 1},
+                )
+            elapsed = time.monotonic() - start
+
+        assert resp.status_code == 401
+        assert elapsed < 2.0
+
+    @pytest.mark.asyncio
+    async def test_valid_token_initialize_and_16_tools_in_under_5s(self, fs_db, fs_user):
+        from mcp.client.streamable_http import streamable_http_client
+        from mcp import ClientSession
+        import time
+
+        session, TestSession = fs_db
+        raw, _ = _create_token(session, fs_user)
+
+        async with self._prod_app(TestSession) as app:
+            start = time.monotonic()
+            async with httpx.AsyncClient(
+                transport=ASGITransport(app=app),
+                base_url="http://test",
+                headers={"Authorization": f"Bearer {raw}"},
+            ) as client:
+                async with streamable_http_client(
+                    "http://test/mcp/", http_client=client,
+                ) as (read, write, _get_session):
+                    async with ClientSession(read, write) as mcp_session:
+                        await mcp_session.initialize()
+                        result = await mcp_session.list_tools()
+            elapsed = time.monotonic() - start
+
+        assert elapsed < 5.0
+        assert len(result.tools) == 16

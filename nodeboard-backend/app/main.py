@@ -45,8 +45,6 @@ import mimetypes
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from alembic.config import Config
-from alembic import command
 from dotenv import load_dotenv
 from fastapi import Cookie, Depends, FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -109,8 +107,6 @@ from .services.mcp_tokens import (
     delete_mcp_token as _mcp_token_service_delete,
 )
 
-_ALEMBIC_CFG = os.path.join(os.path.dirname(__file__), "..", "alembic.ini")
-
 _COOKIE_SESSION = "session"
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
 _HASHED_ASSET_RE = re.compile(r"[-.][A-Za-z0-9_-]{8,}\.")
@@ -131,9 +127,8 @@ mimetypes.add_type("application/javascript", ".js")
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    cfg = Config(_ALEMBIC_CFG)
-    command.upgrade(cfg, "head")
-
+    # entrypoint.sh runs `alembic upgrade head` before uvicorn starts,
+    # so no migration call is needed here.
     mcp_enabled = _is_true(os.getenv("MCP_ENABLED"))
     if mcp_enabled:
         from .mcp.server import mcp_lifespan
