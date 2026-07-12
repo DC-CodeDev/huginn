@@ -1,4 +1,4 @@
-import { StrictMode, useState, useCallback, useMemo, useEffect } from "react";
+import { StrictMode, useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import NodeBoard from "./NodeBoard";
 import { Home } from "./components/Home";
@@ -58,8 +58,16 @@ function AppInner() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
 
+  const themeTransitionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const toggleTheme = useCallback(() => {
+    if (themeTransitionTimerRef.current !== null) clearTimeout(themeTransitionTimerRef.current);
+    document.documentElement.classList.add("theme-transitioning");
     setTheme((t) => (t === "dark" ? "light" : "dark"));
+    themeTransitionTimerRef.current = setTimeout(() => {
+      document.documentElement.classList.remove("theme-transitioning");
+      themeTransitionTimerRef.current = null;
+    }, 250);
   }, []);
 
   useEffect(() => {

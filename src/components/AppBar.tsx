@@ -1,4 +1,5 @@
 import { Settings, CircleUser, Sun, Moon } from "lucide-react";
+import { Presence, SPRING_SNAPPY } from "bylgja";
 import { ToolBtn } from "./ToolBtn";
 import type { Theme } from "../lib/theme";
 import { Sep } from "./Sep";
@@ -18,7 +19,14 @@ export function AppBar({ T, theme, onToggleTheme, onSettingsClick, onProfileClic
       style={{ background: T.card, border: `1px solid ${T.cardBorder}`, boxShadow: "0 14px 34px -14px rgba(0,0,0,.6)" }}
     >
       <ToolBtn T={T} label={theme === "dark" ? "Tema claro" : "Tema oscuro"} onClick={onToggleTheme}>
-        {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
+        <div className="theme-icon-wrapper">
+          <Presence show={theme !== "dark"} exitConfig={SPRING_SNAPPY} className="theme-icon theme-icon-sun">
+            <Sun size={16} />
+          </Presence>
+          <Presence show={theme === "dark"} exitConfig={SPRING_SNAPPY} className="theme-icon theme-icon-moon">
+            <Moon size={16} />
+          </Presence>
+        </div>
       </ToolBtn>
       <Sep T={T} />
       <ToolBtn T={T} label="Ajustes" onClick={onSettingsClick}><Settings size={16} /></ToolBtn>

@@ -217,3 +217,49 @@ button, input, textarea { font: inherit; }
   border-color: var(--accent);
   transform: translateY(-3px);
 }
+
+/* ── Theme toggle icon animation (Bylgja Presence + --spring-progress) ── */
+.theme-icon-wrapper {
+  position: relative;
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+}
+
+.theme-icon {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  will-change: opacity, transform;
+}
+
+/* Sun enters from left / exits left; Moon enters from right / exits right */
+.theme-icon-sun {
+  opacity: var(--spring-progress, 0);
+  transform: translateX(calc((1 - var(--spring-progress, 0)) * -8px));
+}
+
+.theme-icon-moon {
+  opacity: var(--spring-progress, 0);
+  transform: translateX(calc((1 - var(--spring-progress, 0)) * 8px));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .theme-icon-sun,
+  .theme-icon-moon {
+    transform: none;
+  }
+}
+
+/* ── Global color transition during theme switch ── */
+@media (prefers-reduced-motion: no-preference) {
+  html.theme-transitioning * {
+    transition:
+      background-color 200ms ease,
+      color 200ms ease,
+      border-color 200ms ease,
+      box-shadow 200ms ease;
+  }
+}
