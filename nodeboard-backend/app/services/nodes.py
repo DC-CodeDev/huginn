@@ -138,7 +138,7 @@ def move_node(
     expected_version: int,
     node: models.Node | None = None,
     board: models.Board | None = None,
-) -> tuple[schemas.NodeSchema, dict[str, float], dict[str, float]]:
+) -> tuple[NodeSchema, dict[str, float], dict[str, float]]:
     """Mueve un nodo a una nueva posición verificando ownership y versión.
 
     Únicamente modifica las coordenadas ``x`` e ``y``, preservando el
