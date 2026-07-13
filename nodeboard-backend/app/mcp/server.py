@@ -126,6 +126,7 @@ class MCPAuthMiddleware:
     async def __call__(
         self, scope: Scope, receive: Receive, send: Send
     ) -> None:
+        logger.info("[mcp-auth] request begin")
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
@@ -136,26 +137,33 @@ class MCPAuthMiddleware:
         if scope.get("path") == "":
             scope = {**scope, "path": "/"}
 
+        logger.info("[mcp-auth] buffer request body begin")
         body, replay_receive = await _buffer_request_body(receive)
+        logger.info("[mcp-auth] buffer request body complete (%d bytes)", len(body))
 
         # Extraer header Authorization
         headers = dict(scope.get("headers", []))
         auth_value = headers.get(b"authorization")
 
+        logger.info("[mcp-auth] authorization header parsed")
         try:
             raw = auth_value.decode("utf-8") if auth_value else None
             raw_token = extract_bearer_token(raw)
+            logger.info("[mcp-auth] token prefix validated")
         except (MissingBearerToken, InvalidBearerToken) as exc:
-            logger.warning("MCP auth failed: %s", exc)
+            logger.warning("[mcp-auth] auth failed (missing/invalid): %s", exc)
             await _send_401(scope, receive, send)
             return
 
         # Autenticar contra DB (sesión propia, se cierra al terminar)
+        logger.info("[mcp-auth] database session opened")
         db = _database.SessionLocal()
         try:
+            logger.info("[mcp-auth] token query begin")
             ctx = authenticate_mcp_token(
                 db, raw_token, update_last_used=True
             )
+            logger.info("[mcp-auth] token validation + last_used update complete")
             ctx = MCPContext(
                 user_id=ctx.user_id,
                 token_id=ctx.token_id,
@@ -171,16 +179,21 @@ class MCPAuthMiddleware:
             RevokedMCPToken,
             MCPAuthenticationError,
         ) as exc:
-            logger.warning("MCP auth failed: %s", exc)
+            logger.warning("[mcp-auth] auth failed (expired/revoked/auth): %s", exc)
             await _send_401(scope, receive, send)
             return
         finally:
+            logger.info("[mcp-auth] database session closing")
             db.close()
+            logger.info("[mcp-auth] database session closed")
 
         # Propagar contexto a las tools
+        logger.info("[mcp-auth] context installed")
         reset_token = mcp_context_var.set(ctx)
         try:
+            logger.info("[mcp-auth] delegating to MCP app")
             await self.app(scope, replay_receive, send)
+            logger.info("[mcp-auth] MCP app returned")
         finally:
             mcp_context_var.reset(reset_token)
 
@@ -221,8 +234,12 @@ async def _buffer_request_body(receive: Receive) -> tuple[bytes, Receive]:
             break
 
     async def replay_receive() -> dict:
-        if messages:
-            return messages.pop(0)
+        while messages:
+            msg = messages.pop(0)
+            if msg["type"] == "http.request":
+                return msg
+            # Skip non-http.request messages (e.g. http.disconnect)
+            continue
         return {"type": "http.request", "body": b"", "more_body": False}
 
     return b"".join(body_parts), replay_receive

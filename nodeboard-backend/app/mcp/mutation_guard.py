@@ -105,6 +105,7 @@ def persist_mutation_audit_entry(
     idempotency_key: str | None = None,
     is_replay: bool = False,
 ) -> None:
+    logger.debug("[mcp-audit] write begin tool=%s", tool_name)
     try:
         with session_factory() as audit_db:
             persisted_token_id = (
@@ -131,6 +132,7 @@ def persist_mutation_audit_entry(
                 idempotency_key=idempotency_key,
                 metadata=metadata,
             )
+        logger.debug("[mcp-audit] write complete tool=%s", tool_name)
     except Exception:
         logger.exception(
             "mcp audit persistence failed tool=%s request_id=%s status=%s resource_type=%s resource_id=%s",

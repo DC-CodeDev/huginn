@@ -193,6 +193,7 @@ def authenticate_mcp_token(
     token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
 
     # 3. Buscar por hash
+    logger.debug("[mcp-auth] token query begin")
     token_record = (
         db.execute(
             select(models.MCPToken).where(models.MCPToken.token_hash == token_hash)
@@ -200,6 +201,7 @@ def authenticate_mcp_token(
         .scalars()
         .first()
     )
+    logger.debug("[mcp-auth] token query complete (found=%s)", token_record is not None)
 
     if not token_record:
         logger.warning("MCP auth failed: token_hash not found")
@@ -288,14 +290,17 @@ def _update_last_used_if_needed(
         needs_write = True
 
     if not needs_write:
+        logger.debug("[mcp-auth] last_used update skipped (within interval)")
         return
 
+    logger.debug("[mcp-auth] last_used update begin")
     token_record.last_used_at = now
     try:
         db.commit()
+        logger.debug("[mcp-auth] last_used update complete")
     except Exception:
         db.rollback()
-        logger.exception("Failed to update last_used_at for token %s", token_record.id)
+        logger.exception("[mcp-auth] last_used update failed for token %s", token_record.id)
         # No relanzamos — la autenticación ya es exitosa,
         # el fallo de escritura no debe bloquear la operación.
 
